@@ -1,0 +1,31 @@
+name: YouTube Info
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'YouTube URL to inspect'
+        required: true
+
+permissions: { contents: write }
+
+jobs:
+  info:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: fscarmen/warp-on-actions@v1.1
+        with: { stack: dual }
+      - run: |
+          sudo apt-get install -y jq
+          pip install -U yt-dlp
+          curl -fsSL https://deno.land/install.sh | sh && echo "$HOME/.deno/bin" >> $GITHUB_PATH
+      - name: Get metadata
+        run: |
+          export PATH="$HOME/.deno/bin:$PATH"
+          yt-dlp --dump-json --no-download --remote-components ejs:github \
+            --extractor-args "youtube:player_client=web" \
+            "${{ github.event.inputs.url }}" > info.json 2>err.log
+          echo "=== STDERR ==="; tail -20 err.log
+          echo
+          echo "=== METADATA ==="
+          cat info.json | jq -r '. | {title, uploader, channel, channel_id, channel_url, upload_date, duration, view_count, description, tags, categories}'

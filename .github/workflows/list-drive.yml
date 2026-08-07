@@ -1,0 +1,57 @@
+name: List Drive Files
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  list:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: List files in Drive folder
+        env:
+          CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+        run: |
+          pip install requests 2>/dev/null
+          python3 -c "
+          import requests, json, os
+
+          token = requests.post('https://oauth2.googleapis.com/token', data={
+              'client_id': os.environ['CLIENT_ID'], 'client_secret': os.environ['CLIENT_SECRET'],
+              'refresh_token': os.environ['REFRESH_TOKEN'], 'grant_type': 'refresh_token'
+          }).json()['access_token']
+
+          # Find the folder
+          headers = {'Authorization': f'Bearer {token}'}
+          r = requests.get('https://www.googleapis.com/drive/v3/files',
+              params={'q': \"mimeType='application/vnd.google-apps.folder' and trashed=false and (name='סרטונים שהורדו' or name='חזון איש - עדויות')\", 'fields': 'files(id,name)'},
+              headers=headers)
+          folders = r.json().get('files', [])
+
+          all_files = []
+          for folder in folders:
+              r = requests.get('https://www.googleapis.com/drive/v3/files',
+                  params={'q': f\"'{folder['id']}' in parents and trashed=false\", 'fields': 'files(id,name,mimeType,size,webViewLink,createdTime)', 'pageSize': 100, 'orderBy': 'createdTime desc'},
+                  headers=headers)
+              for f in r.json().get('files', []):
+                  f['folder'] = folder['name']
+                  all_files.append(f)
+
+          print(f'Found {len(all_files)} files')
+          os.makedirs('docs', exist_ok=True)
+          with open('docs/drive_files.json', 'w', encoding='utf-8') as f:
+              json.dump(all_files, f, ensure_ascii=False)
+          "
+
+      - name: Commit results
+        run: |
+          git config user.email "bot@github.com"
+          git config user.name "Bot"
+          git add docs/drive_files.json
+          git commit -m "Update drive file list" || true
+          git push || true

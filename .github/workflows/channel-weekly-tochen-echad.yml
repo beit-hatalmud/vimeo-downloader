@@ -1,0 +1,149 @@
+name: Channel Weekly - Tochen Echad
+on:
+  schedule:
+    - cron: '0 6 * * 0'  # Sunday 06:00 UTC = 09:00 IL
+  workflow_dispatch:
+    inputs:
+      channel_url:
+        description: 'YouTube channel URL'
+        required: false
+        default: 'https://www.youtube.com/@תוכן_אחד'
+      drive_folder:
+        description: 'Drive folder name'
+        required: false
+        default: 'תוכן אחד - כל הערוץ'
+
+permissions:
+  contents: read
+
+env:
+  CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+  CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+  REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+
+jobs:
+  download_new:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Install
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y ffmpeg
+          pip install -U yt-dlp requests
+
+      - name: Get channel videos
+        env:
+          CHANNEL: ${{ github.event.inputs.channel_url || 'https://www.youtube.com/@תוכן_אחד' }}
+        run: |
+          mkdir -p videos
+          # Get all videos (videos tab, not shorts)
+          yt-dlp --flat-playlist --print "%(id)s|%(title)s" "${CHANNEL}/videos" > channel.txt || true
+          if [ ! -s channel.txt ]; then
+            yt-dlp --flat-playlist --print "%(id)s|%(title)s" "$CHANNEL" > channel.txt
+          fi
+          echo "Total in channel: $(wc -l < channel.txt)"
+          head -5 channel.txt
+
+      - name: List existing in Drive
+        env:
+          FOLDER: ${{ github.event.inputs.drive_folder || 'תוכן אחד - כל הערוץ' }}
+        run: |
+          python3 << 'PYEOF'
+          import os, requests
+          token = requests.post("https://oauth2.googleapis.com/token", data={
+              "client_id": os.environ["CLIENT_ID"], "client_secret": os.environ["CLIENT_SECRET"],
+              "refresh_token": os.environ["REFRESH_TOKEN"], "grant_type": "refresh_token"
+          }).json()["access_token"]
+          folder_name = os.environ["FOLDER"]
+          q = f"name='{folder_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
+          r = requests.get("https://www.googleapis.com/drive/v3/files",
+              params={"q": q, "fields": "files(id)"},
+              headers={"Authorization": f"Bearer {token}"}).json()
+          existing = set()
+          if r.get("files"):
+              fid = r["files"][0]["id"]
+              page_token = None
+              while True:
+                  params = {"q": f"'{fid}' in parents and trashed=false",
+                            "fields": "nextPageToken,files(name)", "pageSize": 1000}
+                  if page_token: params["pageToken"] = page_token
+                  r2 = requests.get("https://www.googleapis.com/drive/v3/files",
+                      params=params, headers={"Authorization": f"Bearer {token}"}).json()
+                  for f in r2.get("files", []):
+                      n = f["name"]
+                      if n.endswith(".mp4"): n = n[:-4]
+                      existing.add(n.strip())
+                  page_token = r2.get("nextPageToken")
+                  if not page_token: break
+          with open("existing.txt", "w", encoding="utf-8") as f:
+              for t in existing: f.write(t + "\n")
+          print(f"Existing: {len(existing)}")
+          PYEOF
+
+      - name: Filter new only
+        run: |
+          touch new_videos.txt
+          while IFS='|' read -r vid_id title; do
+            title_clean=$(echo "$title" | tr -d '\r\n')
+            if ! grep -Fxq "$title_clean" existing.txt 2>/dev/null; then
+              echo "$vid_id|$title_clean" >> new_videos.txt
+            fi
+          done < channel.txt
+          NEW=$(wc -l < new_videos.txt)
+          echo "NEW: $NEW"
+          head -10 new_videos.txt
+
+      - name: Download new (limit 20 per run)
+        run: |
+          if [ ! -s new_videos.txt ]; then echo "No new"; exit 0; fi
+          # Limit to 20 per run to keep within timeout
+          head -20 new_videos.txt > to_download.txt
+          while IFS='|' read -r vid_id title; do
+            [ -z "$vid_id" ] && continue
+            echo "=== $title ==="
+            timeout 600 yt-dlp "https://www.youtube.com/watch?v=$vid_id" \
+              --no-overwrites --merge-output-format mp4 \
+              --no-warnings --ignore-errors --socket-timeout 30 \
+              --retries 3 --fragment-retries 5 \
+              --max-filesize 1500M \
+              -o "videos/%(title)s.%(ext)s" 2>&1 | tail -3 || true
+          done < to_download.txt
+          echo "Files: $(ls videos/ 2>/dev/null | wc -l)"
+
+      - name: Upload to Drive
+        env:
+          FOLDER: ${{ github.event.inputs.drive_folder || 'תוכן אחד - כל הערוץ' }}
+        run: |
+          python3 << 'PYEOF'
+          import os, requests, glob
+          token = requests.post("https://oauth2.googleapis.com/token", data={
+              "client_id": os.environ["CLIENT_ID"], "client_secret": os.environ["CLIENT_SECRET"],
+              "refresh_token": os.environ["REFRESH_TOKEN"], "grant_type": "refresh_token"
+          }).json()["access_token"]
+          folder_name = os.environ["FOLDER"]
+          q = f"name='{folder_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
+          r = requests.get("https://www.googleapis.com/drive/v3/files",
+              params={"q": q, "fields": "files(id)"},
+              headers={"Authorization": f"Bearer {token}"}).json()
+          if r.get("files"): parent_id = r["files"][0]["id"]
+          else:
+              parent_id = requests.post("https://www.googleapis.com/drive/v3/files",
+                  headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                  json={"name": folder_name, "mimeType": "application/vnd.google-apps.folder"}).json()["id"]
+          total = 0
+          for fpath in glob.glob("videos/*"):
+              if not os.path.isfile(fpath): continue
+              fname = os.path.basename(fpath)
+              size = os.path.getsize(fpath)
+              up = requests.post("https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable",
+                  headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                  json={"name": fname, "parents": [parent_id]})
+              loc = up.headers.get("Location")
+              if not loc: continue
+              with open(fpath, "rb") as f:
+                  r = requests.put(loc, data=f.read())
+              if r.status_code in (200, 201):
+                  total += 1
+                  print(f"  uploaded: {fname} ({size/1024/1024:.1f}MB)")
+          print(f"TOTAL UPLOADED: {total}")
+          PYEOF

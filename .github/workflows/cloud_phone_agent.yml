@@ -1,0 +1,44 @@
+name: Cloud Phone Agent (ext3 -> ext2)
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  repository_dispatch:
+    types: [phone-agent-check, phone-agent-now]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  agent:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install dependencies
+        run: pip install -q requests
+
+      - name: Run phone agent
+        env:
+          YEMOT_USER: ${{ secrets.YEMOT_USER }}
+          YEMOT_PASS: ${{ secrets.YEMOT_PASS }}
+          GEMINI_KEY: ${{ secrets.GEMINI_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 phone_agent.py
+
+      - name: Commit state
+        if: always()
+        run: |
+          git config user.name "Phone Agent Bot"
+          git config user.email "bot@phone-agent"
+          git add docs/phone_seen.json
+          if ! git diff --staged --quiet; then
+            git commit -m "phone-agent state $(date +%H%M)"
+            git pull --rebase origin master 2>/dev/null || git pull --rebase origin main 2>/dev/null || true
+            git push 2>/dev/null || true
+          fi

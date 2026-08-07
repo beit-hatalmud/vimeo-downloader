@@ -1,0 +1,76 @@
+name: Fetch Gmail Attachment
+on:
+  workflow_dispatch:
+    inputs:
+      messageId:
+        required: true
+      attachmentId:
+        required: true
+      outputName:
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch and upload to Drive
+        env:
+          CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+          MID: ${{ inputs.messageId }}
+          AID: ${{ inputs.attachmentId }}
+          NAME: ${{ inputs.outputName }}
+        run: |
+          python3 << 'PYEOF'
+          import os, json, base64, urllib.request, urllib.parse
+          data = urllib.parse.urlencode({
+              'client_id': os.environ['CLIENT_ID'],
+              'client_secret': os.environ['CLIENT_SECRET'],
+              'refresh_token': os.environ['REFRESH_TOKEN'],
+              'grant_type': 'refresh_token'
+          }).encode()
+          req = urllib.request.Request('https://oauth2.googleapis.com/token', data=data)
+          tok = json.load(urllib.request.urlopen(req))['access_token']
+          H = {'Authorization': f'Bearer {tok}'}
+          mid = os.environ['MID']
+          aid = os.environ['AID']
+          name = os.environ['NAME']
+          url = f'https://gmail.googleapis.com/gmail/v1/users/me/messages/{mid}/attachments/{aid}'
+          req2 = urllib.request.Request(url, headers=H)
+          att = json.load(urllib.request.urlopen(req2, timeout=120))
+          raw = base64.urlsafe_b64decode(att['data'])
+          print(f'Fetched {len(raw)} bytes')
+          # Save to Drive folder '_emanuel_edits'
+          # Find/create folder
+          q = urllib.parse.quote("name='_emanuel_edits' and mimeType='application/vnd.google-apps.folder' and trashed=false")
+          fu = f'https://www.googleapis.com/drive/v3/files?q={q}&fields=files(id)'
+          req3 = urllib.request.Request(fu, headers=H)
+          fs = json.load(urllib.request.urlopen(req3))['files']
+          if fs:
+              folder_id = fs[0]['id']
+          else:
+              body = json.dumps({'name':'_emanuel_edits','mimeType':'application/vnd.google-apps.folder'}).encode()
+              req4 = urllib.request.Request('https://www.googleapis.com/drive/v3/files', data=body, headers={**H,'Content-Type':'application/json'})
+              folder_id = json.load(urllib.request.urlopen(req4))['id']
+          # Multipart upload
+          meta = json.dumps({'name':name,'parents':[folder_id]}).encode()
+          boundary = '----claude_bnd_'
+          body = (
+              f'--{boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n'.encode()
+              + meta + f'\r\n--{boundary}\r\nContent-Type: application/octet-stream\r\n\r\n'.encode()
+              + raw + f'\r\n--{boundary}--'.encode()
+          )
+          req5 = urllib.request.Request(
+              'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart',
+              data=body,
+              headers={**H, 'Content-Type': f'multipart/related; boundary={boundary}'},
+              method='POST'
+          )
+          res = json.load(urllib.request.urlopen(req5, timeout=300))
+          print(f'Uploaded to Drive: {res["id"]} name={res["name"]}')
+          PYEOF

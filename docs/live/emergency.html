@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>חירום - חדשות בזמן אמת</title>
+  <style>
+    body { font-family: -apple-system, system-ui, Arial, sans-serif; background: #1a0a0a; color: #eee; margin: 0; padding: 0; }
+    header { padding: 20px; background: #c33; text-align: center; font-size: 24px; font-weight: bold; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 16px; max-width: 1400px; margin: 0 auto; }
+    @media (max-width: 800px) { .grid { grid-template-columns: 1fr; } }
+    .panel { background: #2a1a1a; border-radius: 8px; padding: 14px; }
+    .panel h2 { color: #fa6; margin-top: 0; font-size: 18px; }
+    .panel iframe { width: 100%; height: 500px; border: 0; background: #000; border-radius: 4px; }
+    .btn { display: block; background: #444; color: #fff; padding: 12px; margin: 6px 0; border-radius: 6px; text-decoration: none; text-align: center; font-size: 16px; }
+    .btn:hover { background: #555; }
+    .btn.red { background: #c33; }
+    .btn.green { background: #393; }
+    .alert { background: #c33; padding: 14px; margin: 10px 0; border-radius: 6px; font-weight: bold; }
+    .info { font-size: 13px; color: #aaa; padding: 10px; }
+  </style>
+</head>
+<body>
+  <header>🚨 מרכז חירום</header>
+
+  <div class="grid">
+
+    <div class="panel">
+      <h2>📡 פיקוד העורף</h2>
+      <iframe src="https://www.oref.org.il/" id="oref"></iframe>
+      <a class="btn red" href="https://www.oref.org.il/" target="_blank">פתח במלא בלשונית חדשה</a>
+    </div>
+
+    <div class="panel">
+      <h2>🛡️ צה"ל - דובר צה"ל</h2>
+      <iframe src="https://www.idf.il/" id="idf"></iframe>
+      <a class="btn" href="https://www.idf.il/" target="_blank">פתח במלא</a>
+    </div>
+
+    <div class="panel">
+      <h2>📞 קווי חירום בטלפון</h2>
+      <a class="btn red" href="tel:104">פיקוד העורף — 104</a>
+      <a class="btn" href="tel:0773138888">חדשות בזמן אמת — 077-313-8888</a>
+      <a class="btn" href="tel:0723954100">קו הידברות — 072-395-4100</a>
+      <a class="btn" href="tel:0772251404">הקו שלך — 077-225-1404</a>
+      <div class="info">לחיצה תפתח חיוג ישיר במכשיר</div>
+    </div>
+
+    <div class="panel">
+      <h2>📻 הידברות LIVE</h2>
+      <iframe id="hidab" src="hls.html?url=https%3A%2F%2Fcdn.cybercdn.live%2FHidabrootIL%2FLive97%2Fplaylist.m3u8&label=hidabroot"></iframe>
+    </div>
+
+    <div class="panel">
+      <h2>📨 חדשות במייל</h2>
+      <a class="btn" href="mailto:6742853@gmail.com?subject=הירשם לעדכוני חדשות">קבל עדכון מייל שעתי מהסוכן</a>
+      <div class="info">הסוכן יקבל ויעביר את הכותרות החדשות מ-הידברות, ערוץ 7, כאן וכו' למייל שלך</div>
+    </div>
+
+    <div class="panel">
+      <h2>🔔 התראות נוספות</h2>
+      <a class="btn red" href="https://www.oref.org.il/12481-he/Pakar.aspx" target="_blank">מצב כוננות נוכחי</a>
+      <a class="btn" href="https://www.oref.org.il/12482-he/Pakar.aspx" target="_blank">הנחיות התגוננות</a>
+      <a class="btn" href="https://alerts.org.il/" target="_blank">היסטוריית אזעקות</a>
+    </div>
+
+  </div>
+
+  <div class="info" style="text-align:center;padding:20px">
+    כל מה שמוצג כאן עובר את נטפרי. אם משהו לא נטען — נטפרי חוסם אותו אצלך, נסה ישיר בדפדפן.
+  </div>
+</body>
+</html>

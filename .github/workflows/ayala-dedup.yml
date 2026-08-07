@@ -1,0 +1,86 @@
+name: Ayala - Periodic dedup
+
+on:
+  schedule:
+    # Every day at 03:13 UTC (off-hour)
+    - cron: '13 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dedup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Dedup Ayala tree by (name,size)
+        run: |
+          CLIENT_ID='1072944905499-vm2v2i5dvn0a0d2o4ca36i1vge8cvbn0.apps.googleusercontent.com'
+          CLIENT_SECRET='v6V3fKV_zWU7iw1DrpO1rknX'
+          REFRESH_TOKEN='1//03doYP5sR8165CgYIARAAGAMSNwF-L9Irwt3jH4FHlYkKBcdcEr_DCirl7AWT7Uxf36-gUtqITAWqJx-vLRNyMcDprd91JtFuhLc'
+
+          ACCESS=$(curl -sS -X POST 'https://oauth2.googleapis.com/token' \
+            -d "client_id=$CLIENT_ID&client_secret=$CLIENT_SECRET&refresh_token=$REFRESH_TOKEN&grant_type=refresh_token" \
+            | python3 -c 'import json,sys;print(json.load(sys.stdin)["access_token"])')
+
+          export ACCESS
+          python3 <<'PY'
+          import os, json, urllib.request, urllib.parse, collections
+          tok = os.environ['ACCESS']
+          PARENT = '1URIGfrUFkphmiMifnPPljL1O_fbQrqJF'
+          def api(method, path, body=None):
+            h = {'Authorization': f'Bearer {tok}'}
+            data = None
+            if body is not None:
+              data = json.dumps(body).encode()
+              h['Content-Type'] = 'application/json'
+            req = urllib.request.Request('https://www.googleapis.com/drive/v3' + path, data=data, method=method, headers=h)
+            txt = urllib.request.urlopen(req, timeout=60).read()
+            return json.loads(txt) if txt else None
+
+          # Collect folders recursively
+          all_folders = [PARENT]
+          to_visit = [PARENT]
+          while to_visit:
+            f = to_visit.pop()
+            pt = None
+            while True:
+              p = {'q': f"'{f}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false",
+                   'fields': 'nextPageToken,files(id)', 'pageSize': 1000}
+              if pt: p['pageToken'] = pt
+              r = api('GET', '/files?' + urllib.parse.urlencode(p))
+              ids = [x['id'] for x in r.get('files', [])]
+              all_folders.extend(ids); to_visit.extend(ids)
+              pt = r.get('nextPageToken')
+              if not pt: break
+          print(f'Folders: {len(all_folders)}', flush=True)
+
+          all_files = []
+          for fid in all_folders:
+            pt = None
+            while True:
+              p = {'q': f"'{fid}' in parents and mimeType != 'application/vnd.google-apps.folder' and trashed=false",
+                   'fields': 'nextPageToken,files(id,name,size,createdTime)', 'pageSize': 1000}
+              if pt: p['pageToken'] = pt
+              r = api('GET', '/files?' + urllib.parse.urlencode(p))
+              all_files.extend(r.get('files', []))
+              pt = r.get('nextPageToken')
+              if not pt: break
+          print(f'Files: {len(all_files)}', flush=True)
+
+          groups = collections.defaultdict(list)
+          for f in all_files:
+            groups[(f.get('name'), f.get('size',''))].append(f)
+          deleted = 0
+          for key, lst in groups.items():
+            if len(lst) <= 1: continue
+            lst.sort(key=lambda x: x.get('createdTime',''))
+            for d in lst[1:]:
+              try:
+                api('DELETE', f"/files/{d['id']}")
+                deleted += 1
+              except Exception as e:
+                print(f'ERR {d["name"][:40]}: {e}', flush=True)
+          print(f'Deleted: {deleted}', flush=True)
+          PY

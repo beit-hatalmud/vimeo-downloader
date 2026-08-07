@@ -1,0 +1,170 @@
+name: Hidabroot Yoni Elitzur
+on:
+  schedule:
+    - cron: '0 7 * * 0'  # Sunday 07:00 UTC
+  workflow_dispatch:
+    inputs:
+      lecturer_url:
+        description: 'Hidabroot lecturer page URL'
+        required: false
+        default: 'https://www.hidabroot.org/vod/lecturer/11173'
+      drive_folder:
+        description: 'Drive folder'
+        required: false
+        default: 'שיעורי הרב יוני אליצור'
+      share_email:
+        description: 'Share with email'
+        required: false
+        default: 'a0533177636@gmail.com'
+
+permissions:
+  contents: read
+
+env:
+  CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+  CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+  REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+
+jobs:
+  scrape_download:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Install
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y ffmpeg
+          pip install -U requests beautifulsoup4 yt-dlp
+
+      - name: Find videos on Hidabroot page
+        env:
+          URL: ${{ github.event.inputs.lecturer_url || 'https://www.hidabroot.org/vod/lecturer/11173' }}
+        run: |
+          mkdir -p videos
+          python3 << 'PYEOF'
+          import os, re, requests, json
+          from bs4 import BeautifulSoup
+
+          url = os.environ['URL']
+          ua = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36"}
+
+          all_videos = []
+          # Try both lecturer page and tag page
+          base_urls = [url, 'https://www.hidabroot.org/tags/38506']
+          for base in base_urls:
+              print(f"Source: {base}")
+              for page in range(1, 11):
+                  page_url = f"{base}?page={page}" if page > 1 else base
+                  try:
+                      r = requests.get(page_url, headers=ua, timeout=30)
+                      if r.status_code != 200:
+                          break
+                      # Find /video/NUMBER links
+                      ids = set(re.findall(r'/video/(\d+)', r.text))
+                      found = 0
+                      for vid_id in ids:
+                          v_url = f'https://www.hidabroot.org/video/{vid_id}'
+                          if v_url in [v['url'] for v in all_videos]: continue
+                          # Try to find title near this id
+                          m = re.search(rf'<a[^>]+href="[^"]*?/video/{vid_id}"[^>]*>([^<]+)<', r.text)
+                          title = (m.group(1) if m else 'untitled').strip()
+                          all_videos.append({'url': v_url, 'title': title})
+                          found += 1
+                      print(f"  Page {page}: +{found} (total {len(all_videos)})")
+                      if found == 0: break
+                  except Exception as e:
+                      print(f"  Err: {e}")
+                      break
+
+          print(f"\nTotal videos: {len(all_videos)}")
+          with open('videos.json', 'w', encoding='utf-8') as f:
+              json.dump(all_videos, f, ensure_ascii=False)
+          PYEOF
+
+      - name: Download videos
+        run: |
+          if [ ! -s videos.json ]; then echo "No videos"; exit 0; fi
+          python3 << 'PYEOF'
+          import json, subprocess, os, re
+          with open('videos.json', encoding='utf-8') as f:
+              videos = json.load(f)
+          # Limit to 15 per run
+          for i, v in enumerate(videos[:15]):
+              title = v['title'][:80]
+              safe = re.sub(r'[<>:"/\\|?*]', '_', title)
+              print(f"[{i+1}/{min(15,len(videos))}] {safe}")
+              try:
+                  subprocess.run([
+                      'yt-dlp', v['url'],
+                      '--no-overwrites', '--merge-output-format', 'mp4',
+                      '--no-warnings', '--ignore-errors', '--socket-timeout', '30',
+                      '--retries', '2', '--max-filesize', '500M',
+                      '-o', f'videos/%(title)s.%(ext)s'
+                  ], timeout=600, check=False)
+              except Exception as e:
+                  print(f"  ERR {e}")
+          # Show what was downloaded
+          import glob
+          files = glob.glob('videos/*')
+          print(f"Files: {len(files)}")
+          for f in files[:20]:
+              print(f"  {os.path.basename(f)} ({os.path.getsize(f)/(1024*1024):.1f}MB)")
+          PYEOF
+
+      - name: Upload to Drive + share
+        env:
+          FOLDER: ${{ github.event.inputs.drive_folder || 'שיעורי הרב יוני אליצור' }}
+          SHARE: ${{ github.event.inputs.share_email || 'a0533177636@gmail.com' }}
+        run: |
+          python3 << 'PYEOF'
+          import os, requests, glob
+          tok = requests.post("https://oauth2.googleapis.com/token", data={
+              "client_id": os.environ["CLIENT_ID"], "client_secret": os.environ["CLIENT_SECRET"],
+              "refresh_token": os.environ["REFRESH_TOKEN"], "grant_type": "refresh_token"
+          }).json()["access_token"]
+          folder = os.environ["FOLDER"]
+          share = os.environ["SHARE"]
+
+          # Find or create folder
+          q = f"name='{folder}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
+          r = requests.get("https://www.googleapis.com/drive/v3/files",
+              params={"q": q, "fields": "files(id)"}, headers={"Authorization": f"Bearer {tok}"}).json()
+          if r.get("files"): parent = r["files"][0]["id"]
+          else:
+              parent = requests.post("https://www.googleapis.com/drive/v3/files",
+                  headers={"Authorization": f"Bearer {tok}", "Content-Type": "application/json"},
+                  json={"name": folder, "mimeType": "application/vnd.google-apps.folder"}).json()["id"]
+
+          # Share with Ayala (no notification)
+          if share:
+              perm = requests.post(
+                  f"https://www.googleapis.com/drive/v3/files/{parent}/permissions",
+                  params={"sendNotificationEmail": "false"},
+                  headers={"Authorization": f"Bearer {tok}", "Content-Type": "application/json"},
+                  json={"type": "user", "role": "reader", "emailAddress": share})
+              print(f"Share with {share}: {perm.status_code}")
+
+          # Existing
+          existing = set()
+          r2 = requests.get("https://www.googleapis.com/drive/v3/files",
+              params={"q": f"'{parent}' in parents and trashed=false", "fields": "files(name)", "pageSize": 1000},
+              headers={"Authorization": f"Bearer {tok}"}).json()
+          for f in r2.get("files", []): existing.add(f["name"])
+
+          total = 0
+          for fpath in glob.glob("videos/*"):
+              fname = os.path.basename(fpath)
+              if fname in existing: continue
+              if not os.path.isfile(fpath): continue
+              up = requests.post("https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable",
+                  headers={"Authorization": f"Bearer {tok}", "Content-Type": "application/json"},
+                  json={"name": fname, "parents": [parent]})
+              loc = up.headers.get("Location")
+              if not loc: continue
+              with open(fpath, "rb") as f:
+                  r = requests.put(loc, data=f.read())
+              if r.status_code in (200, 201):
+                  total += 1
+                  print(f"  + {fname}")
+          print(f"TOTAL UPLOADED: {total}")
+          print(f"FOLDER URL: https://drive.google.com/drive/folders/{parent}")
+          PYEOF

@@ -1,0 +1,461 @@
+name: Google Web Search
+on:
+  workflow_dispatch:
+    inputs:
+      query:
+        description: 'Google search query (or __file__:path to read from file in repo)'
+        required: true
+      limit:
+        description: 'Max total results'
+        required: false
+        default: '20'
+      download_top:
+        description: 'How many top results to auto-download videos from (0 = none)'
+        required: false
+        default: '0'
+      drive_folder:
+        description: 'Drive folder for downloads'
+        required: false
+        default: 'סרטונים מחיפוש'
+      exclude_video_platforms:
+        description: 'Exclude YouTube/Vimeo/Dailymotion/etc from results (true/false)'
+        required: false
+        default: 'false'
+      min_duration:
+        description: 'Minimum video duration in seconds (skip shorter videos)'
+        required: false
+        default: '0'
+
+permissions:
+  contents: write
+
+jobs:
+  search:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Search
+        env:
+          QUERY: ${{ github.event.inputs.query }}
+          LIMIT: ${{ github.event.inputs.limit }}
+          EXCLUDE_PLATFORMS: ${{ github.event.inputs.exclude_video_platforms }}
+          # SECURITY 2026-07-09: download_top via env to avoid ${{ }}-into-Python-source injection.
+          DOWNLOAD_TOP: ${{ github.event.inputs.download_top }}
+        run: |
+          pip install -q requests beautifulsoup4
+          python3 << 'PYEOF'
+          import os, re, json, time, urllib.parse, requests, base64
+          from bs4 import BeautifulSoup
+          from urllib.parse import urlparse, parse_qs, unquote
+
+          raw_query = os.environ["QUERY"]
+          try: limit = int(os.environ.get("LIMIT","20"))
+          except: limit = 20
+          limit = max(5, min(200, limit))
+          exclude_platforms = os.environ.get("EXCLUDE_PLATFORMS","false").lower() == "true"
+          EXCLUDED_DOMAINS = {"youtube.com","youtu.be","m.youtube.com","vimeo.com","dailymotion.com","tiktok.com","facebook.com","fb.watch","instagram.com"}
+          EXCLUDE_SUFFIX = " -site:youtube.com -site:youtu.be -site:vimeo.com -site:dailymotion.com -site:tiktok.com -site:facebook.com -site:instagram.com" if exclude_platforms else ""
+
+          queries = []
+          if raw_query.startswith("__file__:"):
+              fp = raw_query[len("__file__:"):].strip()
+              print(f"Reading queries from {fp}")
+              with open(fp, "r", encoding="utf-8") as f:
+                  for line in f:
+                      line = line.strip()
+                      if line and not line.startswith("#"):
+                          queries.append(line)
+              print(f"  loaded {len(queries)} queries")
+              per_query = max(3, limit // max(1, len(queries)))
+          else:
+              queries = [raw_query]
+              per_query = limit
+
+          UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+          HDR = {"User-Agent": UA, "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9",
+                 "Accept-Language": "he-IL,he;q=0.9,en;q=0.8", "DNT": "1"}
+
+          try:
+              print("IP after WARP:", requests.get("https://ifconfig.me", timeout=10).text.strip())
+          except: pass
+
+          MOBILE_UA = "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36"
+          MOBILE_HDR = {**HDR, "User-Agent": MOBILE_UA}
+
+          def _extract_results_from_html(html_text, exclude_platforms):
+              found = []
+              soup = BeautifulSoup(html_text, "html.parser")
+              # Try multiple selector strategies
+              candidates = []
+              # Strategy 1: any <a> containing h3 (desktop)
+              for a in soup.select("a[href]"):
+                  h3 = a.find("h3")
+                  if h3:
+                      candidates.append((a, h3.get_text(strip=True)))
+              # Strategy 2: mobile-style (a > div with title)
+              for a in soup.select("a[role='link']"):
+                  txt = a.get_text(" ", strip=True)[:120]
+                  if txt and len(txt) > 5:
+                      candidates.append((a, txt))
+              # Strategy 3: any link to /url?q=
+              for a in soup.select("a[href^='/url?q=']"):
+                  txt = a.get_text(" ", strip=True)[:120] or "link"
+                  candidates.append((a, txt))
+              seen_local = set()
+              for a, title in candidates:
+                  href = a.get("href","")
+                  if href.startswith("/url?"):
+                      qv = parse_qs(urlparse(href).query).get("q",[""])[0]
+                      if qv: href = unquote(qv)
+                  if not href.startswith("http"): continue
+                  netloc_clean = urlparse(href).netloc.replace("www.","").lower()
+                  if "google." in netloc_clean: continue
+                  if "gstatic." in netloc_clean: continue
+                  if "googleusercontent.com" in netloc_clean: continue
+                  if exclude_platforms and any(netloc_clean == d or netloc_clean.endswith("."+d) for d in EXCLUDED_DOMAINS): continue
+                  if href in seen_local: continue
+                  seen_local.add(href)
+                  # try to find a snippet
+                  snippet = ""
+                  p = a
+                  for _ in range(6):
+                      p = p.parent if p.parent else p
+                      if not p: break
+                      sn = (p.find("div", attrs={"data-sncf": True}) or
+                            p.find(["div","span"], class_=re.compile("VwiC3b|aCOpRe|MUxGbd|s3v9rd|yXK7lf|lEBKkf")) or
+                            p.find("div", attrs={"style": re.compile("-webkit-line-clamp")}))
+                      if sn:
+                          snippet = sn.get_text(" ", strip=True)[:300]
+                          if snippet: break
+                  domain = netloc_clean
+                  found.append({"title": title or domain, "url": href,
+                                "description": snippet, "source": domain, "thumb": ""})
+              return found
+
+          def google_search(q, n_target):
+              found = []
+              q_with_exclude = q + EXCLUDE_SUFFIX
+              # Try desktop first with udm=14 (cleaner web results), then mobile, then no udm
+              for variant_name, hdr, extra in [
+                  ("desktop+udm14", HDR, "&udm=14"),
+                  ("mobile", MOBILE_HDR, ""),
+                  ("desktop-plain", HDR, ""),
+              ]:
+                  if len(found) >= n_target: break
+                  for offset in range(0, n_target, 10):
+                      if len(found) >= n_target: break
+                      url = f"https://www.google.com/search?q={urllib.parse.quote(q_with_exclude)}&num=10&start={offset}&hl=he&gl=il{extra}"
+                      print(f"  GET [{variant_name}] {url}")
+                      try:
+                          r = requests.get(url, headers=hdr, timeout=15)
+                          print(f"    status={r.status_code} bytes={len(r.text)}")
+                          if r.status_code != 200: break
+                          page_found = _extract_results_from_html(r.text, exclude_platforms)
+                          n_added = 0
+                          for item in page_found:
+                              if any(f["url"] == item["url"] for f in found): continue
+                              found.append(item)
+                              n_added += 1
+                              if len(found) >= n_target: break
+                          print(f"    parsed {n_added} (variant total {len(page_found)})")
+                          if n_added == 0:
+                              # Try next variant
+                              break
+                          time.sleep(1.5)
+                      except Exception as e:
+                          print(f"    error: {e}"); break
+                  if found:
+                      print(f"  variant {variant_name} produced {len(found)} so far")
+              return found
+
+          def ddg_search(q, n_target):
+              found = []
+              q_with_exclude = q + EXCLUDE_SUFFIX
+              try:
+                  r = requests.post("https://html.duckduckgo.com/html/", data={"q": q_with_exclude}, headers=HDR, timeout=15)
+                  print(f"    ddg status={r.status_code}")
+                  soup = BeautifulSoup(r.text, "html.parser")
+                  for res in soup.select(".result")[:n_target * 2]:
+                      a = res.select_one(".result__a")
+                      if not a: continue
+                      href = a.get("href","")
+                      if "/l/?" in href or "//duckduckgo.com" in href:
+                          qv = parse_qs(urlparse(href).query).get("uddg",[""])[0]
+                          if qv: href = unquote(qv)
+                      if not href.startswith("http"): continue
+                      netloc_clean = urlparse(href).netloc.replace("www.","").lower()
+                      if exclude_platforms and any(netloc_clean == d or netloc_clean.endswith("."+d) for d in EXCLUDED_DOMAINS): continue
+                      sn = res.select_one(".result__snippet")
+                      found.append({"title": a.get_text(strip=True), "url": href,
+                                    "description": sn.get_text(" ", strip=True)[:300] if sn else "",
+                                    "source": netloc_clean, "thumb": ""})
+                      if len(found) >= n_target: break
+              except Exception as e:
+                  print(f"    DDG error: {e}")
+              return found
+
+          results = []
+          seen = set()
+          for q in queries:
+              print(f"\n=== Query: {q} (target {per_query}) ===")
+              q_found = google_search(q, per_query)
+              if not q_found:
+                  print("  Google empty, trying DDG...")
+                  q_found = ddg_search(q, per_query)
+              for item in q_found:
+                  if item["url"] in seen: continue
+                  seen.add(item["url"])
+                  item["query"] = q
+                  results.append(item)
+              print(f"  total so far: {len(results)}")
+
+          os.makedirs("docs", exist_ok=True)
+          payload = {"query": raw_query, "results": results, "ts": int(time.time()*1000)}
+          plain = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+          KEY = b"netfree-bypass-key-vd2026"
+          xored = bytes(b ^ KEY[i % len(KEY)] for i, b in enumerate(plain))
+          encoded = base64.b64encode(xored).decode()
+          with open("docs/google_web_results.bin", "w", encoding="utf-8") as f:
+              f.write(encoded)
+          print(f"=== Wrote {len(results)} results (XOR+b64, {len(encoded)} chars) ===")
+
+          # Write a plain list of top URLs for the next step (not exposed publicly)
+          try:
+              dl_top = int(os.environ.get("DOWNLOAD_TOP", "") or "0")
+          except:
+              dl_top = 0
+          top_urls = [r["url"] for r in results[:dl_top]] if dl_top > 0 else []
+          with open("/tmp/top_urls.txt", "w", encoding="utf-8") as f:
+              for u in top_urls:
+                  f.write(u + "\n")
+          print(f"Top URLs to download: {len(top_urls)}")
+          PYEOF
+
+      - name: Commit encoded results
+        run: |
+          set +e
+          git config user.name "Search Bot"
+          git config user.email "bot@search.local"
+          git add docs/google_web_results.bin
+          if ! git diff --staged --quiet; then
+            git commit -m "google web search results (encoded)"
+            for i in 1 2 3; do
+              git pull --rebase origin master
+              git push && break
+              sleep 2
+            done
+          fi
+
+      - name: Install yt-dlp
+        if: ${{ github.event.inputs.download_top != '0' }}
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y ffmpeg
+          pip install -U yt-dlp curl_cffi
+
+      - name: Prepare media sniffer script
+        if: ${{ github.event.inputs.download_top != '0' }}
+        run: |
+          cat > /tmp/sniff_media.py << 'PYEOF'
+          import sys, os, re, subprocess, asyncio
+          try:
+              from playwright.async_api import async_playwright
+          except ImportError:
+              print("no playwright"); sys.exit(0)
+
+          URL = sys.argv[1]
+          OUT_DIR = sys.argv[2] if len(sys.argv) > 2 else "videos/x"
+          media_urls = []
+
+          async def run():
+              async with async_playwright() as p:
+                  browser = await p.chromium.launch(args=["--no-sandbox"])
+                  ctx = await browser.new_context(
+                      user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+                      viewport={"width":1280,"height":800})
+                  page = await ctx.new_page()
+                  seen = set()
+                  def add(u):
+                      if u not in seen and u.startswith("http"):
+                          seen.add(u); media_urls.append(u)
+                  def handle_request(req):
+                      u = req.url
+                      lu = u.lower().split("?",1)[0]
+                      if any(lu.endswith(ext) for ext in [".mp4",".m3u8",".mpd",".webm",".mov",".m4v"]):
+                          add(u)
+                      elif "manifest" in lu and "video" in u.lower():
+                          add(u)
+                  page.on("request", handle_request)
+                  try:
+                      await page.goto(URL, wait_until="domcontentloaded", timeout=30000)
+                      await page.wait_for_timeout(3500)
+                      try:
+                          await page.evaluate("document.querySelectorAll('video').forEach(v=>{try{v.muted=true;v.play()}catch(e){}})")
+                      except: pass
+                      await page.wait_for_timeout(4000)
+                      html = await page.content()
+                      for m in re.findall(r'''(?:src|data-src|data-url)=["']([^"']+\.(?:mp4|m3u8|webm)[^"']*)''', html, re.I):
+                          if m.startswith("http"): add(m)
+                      # Iframes — check src for embedded video pages
+                      for m in re.findall(r'''iframe[^>]+src=["']([^"']+)''', html, re.I):
+                          if any(k in m for k in ["youtube.com/embed","player.vimeo.com","dailymotion.com/embed","jwplayer","video"]):
+                              if m.startswith("//"): m = "https:" + m
+                              if m.startswith("http"): add(m)
+                  except Exception as e:
+                      print(f"page error: {e}")
+                  await browser.close()
+
+          try: asyncio.run(run())
+          except Exception as e: print(f"pw err: {e}")
+
+          print(f"found {len(media_urls)} media URLs / iframes")
+          os.makedirs(OUT_DIR, exist_ok=True)
+          for i, m in enumerate(media_urls[:5]):
+              out = os.path.join(OUT_DIR, f"video_{i+1}.%(ext)s")
+              print(f"  yt-dlp: {m[:120]}")
+              subprocess.run(["yt-dlp","--no-overwrites","--no-warnings","--merge-output-format","mp4","-o", out, m],
+                             timeout=240, check=False)
+          PYEOF
+          echo "Sniffer script ready"
+
+      - name: Download top results
+        if: ${{ github.event.inputs.download_top != '0' }}
+        env:
+          MIN_DURATION: ${{ github.event.inputs.min_duration }}
+        run: |
+          mkdir -p videos
+          if [ ! -f /tmp/top_urls.txt ]; then
+            echo "No top URLs file"
+            exit 0
+          fi
+          MIN_DUR="${MIN_DURATION:-0}"
+          DUR_FILTER=""
+          if [ "$MIN_DUR" -gt 0 ] 2>/dev/null; then
+            DUR_FILTER="--match-filter duration>=$MIN_DUR"
+            echo "Filter: only videos >= $MIN_DUR seconds"
+          fi
+
+          # Worker function: try once with timeout, skip if fails
+          download_one() {
+            local IDX="$1"
+            local URL="$2"
+            local SUB="videos/result_${IDX}"
+            mkdir -p "$SUB"
+            echo "[#$IDX] start: $URL"
+
+            # Attempt 1: generic extractor with chrome impersonation (most sites)
+            timeout 180 yt-dlp --extractor-args generic:impersonate=chrome $DUR_FILTER \
+              --max-filesize 150M \
+              --no-overwrites --merge-output-format mp4 \
+              --no-warnings --ignore-errors --socket-timeout 15 \
+              --retries 2 --fragment-retries 3 \
+              --hls-prefer-native \
+              --add-header "Referer: $URL" \
+              --add-header "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
+              -o "${SUB}/%(title)s.%(ext)s" "$URL" >/dev/null 2>&1 || true
+
+            # Attempt 2: if no file, try force-generic with iframe follow (HLS detect)
+            if [ -z "$(ls -A $SUB/ 2>/dev/null)" ]; then
+              timeout 90 yt-dlp --force-generic-extractor $DUR_FILTER \
+                --max-filesize 150M \
+                --no-overwrites --merge-output-format mp4 \
+                --no-warnings --ignore-errors --socket-timeout 15 \
+                --hls-prefer-native --fragment-retries 3 \
+                --add-header "Referer: $URL" \
+                -o "${SUB}/%(title)s.%(ext)s" "$URL" >/dev/null 2>&1 || true
+            fi
+
+            # Remove .part/.ytdl files (incomplete downloads)
+            rm -f "$SUB"/*.part "$SUB"/*.ytdl "$SUB"/*.frag 2>/dev/null
+
+            # Remove image leftovers + files smaller than 1MB (not real videos)
+            for f in "$SUB"/*; do
+              [ -f "$f" ] || continue
+              ext="${f##*.}"
+              case "${ext,,}" in
+                jpg|jpeg|png|gif|webp|bmp|svg|ico|m3u8|mpd|html|txt|json) rm -f "$f"; continue ;;
+              esac
+              size=$(stat -c%s "$f" 2>/dev/null || echo 0)
+              # Min 10 MB (10485760), Max 150 MB (157286400)
+              if [ "$size" -lt 10485760 ] || [ "$size" -gt 157286400 ]; then
+                rm -f "$f"
+              fi
+            done
+
+            local n=$(ls -1 "$SUB"/ 2>/dev/null | wc -l)
+            if [ "$n" -eq 0 ]; then
+              rmdir "$SUB" 2>/dev/null
+              echo "[#$IDX] skipped (no video)"
+            else
+              echo "[#$IDX] DONE ($n files)"
+            fi
+          }
+          export -f download_one
+          export DUR_FILTER
+
+          # Parallel: 10 workers, line-buffered
+          mapfile -t URLS < /tmp/top_urls.txt
+          echo "Total URLs: ${#URLS[@]}, running 10 in parallel"
+          for i in "${!URLS[@]}"; do
+            [ -z "${URLS[$i]}" ] && continue
+            printf '%s\t%s\n' "$((i+1))" "${URLS[$i]}"
+          done | xargs -P 10 -I {} bash -c 'IFS=$'"'"'\t'"'"' read idx url <<< "{}"; download_one "$idx" "$url"'
+
+          echo "=== ALL FILES ==="
+          find videos/ -type f | wc -l
+          du -sh videos/ 2>/dev/null || true
+
+      - name: Upload to Drive
+        if: ${{ github.event.inputs.download_top != '0' }}
+        env:
+          CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+          DRIVE_FOLDER: ${{ github.event.inputs.drive_folder }}
+        run: |
+          python3 << 'PYEOF'
+          import requests, os, glob, mimetypes
+          token = requests.post("https://oauth2.googleapis.com/token", data={
+              "client_id": os.environ["CLIENT_ID"], "client_secret": os.environ["CLIENT_SECRET"],
+              "refresh_token": os.environ["REFRESH_TOKEN"], "grant_type": "refresh_token"
+          }).json()["access_token"]
+          H = {"Authorization": f"Bearer {token}"}
+          fname = os.environ["DRIVE_FOLDER"]
+          r = requests.get("https://www.googleapis.com/drive/v3/files",
+              params={"q": f"name='{fname}' and mimeType='application/vnd.google-apps.folder' and trashed=false",
+                      "fields": "files(id)"}, headers=H)
+          files = r.json().get("files", [])
+          parent = files[0]["id"] if files else requests.post(
+              "https://www.googleapis.com/drive/v3/files",
+              headers={**H, "Content-Type": "application/json"},
+              json={"name": fname, "mimeType": "application/vnd.google-apps.folder"}).json()["id"]
+          print(f"Drive folder '{fname}': {parent}")
+          total = 0
+          for sub in sorted(glob.glob("videos/result_*")):
+              num = os.path.basename(sub).replace("result_","")
+              subf = requests.post("https://www.googleapis.com/drive/v3/files",
+                  headers={**H, "Content-Type": "application/json"},
+                  json={"name": f"תוצאה {num}", "mimeType": "application/vnd.google-apps.folder",
+                        "parents": [parent]}).json()["id"]
+              for fpath in glob.glob(f"{sub}/*"):
+                  if not os.path.isfile(fpath): continue
+                  size = os.path.getsize(fpath)
+                  if size < 1000:
+                      print(f"  skip tiny {os.path.basename(fpath)}"); continue
+                  fn = os.path.basename(fpath)
+                  mime = mimetypes.guess_type(fn)[0] or "application/octet-stream"
+                  init = requests.post(
+                      "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable",
+                      headers={**H, "Content-Type": "application/json"},
+                      json={"name": fn, "parents": [subf]})
+                  if init.status_code != 200:
+                      print(f"  init {fn}: {init.status_code}"); continue
+                  with open(fpath,"rb") as ff:
+                      up = requests.put(init.headers["Location"], data=ff, headers={"Content-Type": mime})
+                  if up.status_code == 200:
+                      print(f"  uploaded: {fn} ({size/1024/1024:.1f}MB)"); total += 1
+                  else:
+                      print(f"  upload fail {fn}: {up.status_code}")
+          print(f"=== UPLOADED: {total} ===")
+          PYEOF

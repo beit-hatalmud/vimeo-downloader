@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="he">
+<head>
+<meta charset="utf-8">
+<title>הורד מכל אתר - Universal Downloader</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Segoe UI', Arial, sans-serif; background: linear-gradient(135deg, #0f1419 0%, #1a2332 100%); color: #e0e0e0; min-height: 100vh; padding: 20px; }
+.container { max-width: 800px; margin: 0 auto; }
+header { text-align: center; padding: 32px 0 24px; }
+h1 { font-size: 32px; color: #60a5fa; margin-bottom: 8px; }
+.subtitle { color: #94a3b8; font-size: 15px; }
+.card { background: rgba(26, 35, 50, 0.7); border: 1px solid #2d3a4e; border-radius: 12px; padding: 24px; margin-bottom: 20px; backdrop-filter: blur(10px); }
+.card h2 { font-size: 20px; color: #e0e0e0; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+.card h2 .badge { background: #3b82f6; color: #fff; font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 600; }
+label { display: block; color: #94a3b8; font-size: 13px; margin-bottom: 6px; margin-top: 12px; }
+input, select { width: 100%; padding: 12px; background: #0f1419; border: 1px solid #2d3a4e; border-radius: 6px; color: #fff; font-size: 14px; font-family: inherit; }
+input:focus, select:focus { outline: none; border-color: #3b82f6; }
+input[type=password] { font-family: monospace; }
+.btn { display: block; width: 100%; padding: 14px; border: none; border-radius: 6px; font-size: 15px; font-weight: 600; cursor: pointer; margin-top: 16px; transition: all 0.15s; }
+.btn-primary { background: linear-gradient(135deg, #3b82f6, #2563eb); color: #fff; }
+.btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4); }
+.btn-primary:disabled { background: #1e3a5f; cursor: not-allowed; transform: none; }
+.btn-secondary { background: #2d3a4e; color: #e0e0e0; }
+.log { margin-top: 16px; background: #0a0e14; border: 1px solid #2d3a4e; border-radius: 6px; padding: 12px; max-height: 280px; overflow-y: auto; font-family: monospace; font-size: 12px; line-height: 1.7; }
+.log-line { color: #94a3b8; padding: 2px 0; }
+.log-ok { color: #34d399; }
+.log-err { color: #f87171; }
+.log-info { color: #60a5fa; }
+.hint { font-size: 12px; color: #6b7280; margin-top: 4px; line-height: 1.5; }
+.hint code { background: #1a2332; padding: 1px 6px; border-radius: 3px; color: #60a5fa; font-size: 11px; }
+a { color: #60a5fa; text-decoration: none; }
+a:hover { text-decoration: underline; }
+.nav { display: flex; gap: 12px; margin-bottom: 16px; justify-content: center; }
+.nav a { padding: 8px 16px; background: rgba(45, 58, 78, 0.5); border-radius: 6px; font-size: 13px; }
+.results { margin-top: 20px; display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+.results-meta { grid-column: 1 / -1; color: #94a3b8; font-size: 13px; padding: 8px 0; border-bottom: 1px solid #2d3a4e; margin-bottom: 4px; }
+.result-card { background: rgba(15, 20, 25, 0.6); border: 1px solid #2d3a4e; border-radius: 10px; overflow: hidden; transition: all .2s; display: flex; flex-direction: column; }
+.result-card:hover { transform: translateY(-2px); border-color: #3b82f6; box-shadow: 0 8px 20px rgba(0,0,0,0.3); }
+.result-thumb { position: relative; width: 100%; aspect-ratio: 16/9; background: #0a0e14; overflow: hidden; }
+.result-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.result-thumb .placeholder { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 32px; color: #4a5568; background: linear-gradient(135deg, #1a2332, #0f1419); }
+.result-thumb .duration { position: absolute; bottom: 6px; left: 6px; background: rgba(0,0,0,0.85); color: #fff; font-size: 11px; padding: 2px 6px; border-radius: 3px; font-weight: 600; font-family: monospace; }
+.result-thumb .source-badge { position: absolute; top: 6px; right: 6px; background: rgba(59, 130, 246, 0.9); color: #fff; font-size: 10px; padding: 3px 8px; border-radius: 10px; font-weight: 700; text-transform: uppercase; }
+.result-thumb .source-badge.youtube { background: rgba(239, 68, 68, 0.9); }
+.result-thumb .source-badge.vimeo { background: rgba(99, 154, 235, 0.9); }
+.result-body { padding: 12px 14px; flex: 1; display: flex; flex-direction: column; gap: 8px; }
+.result-title { color: #f0f0f0; font-size: 14px; font-weight: 600; line-height: 1.35; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.result-uploader { color: #94a3b8; font-size: 12px; }
+.result-url { color: #6b7280; font-size: 10px; font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: ltr; }
+.result-actions { display: flex; gap: 6px; margin-top: auto; padding-top: 6px; }
+.dl-btn { flex: 1; background: linear-gradient(135deg, #10b981, #059669); color: #fff; border: none; padding: 9px; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 600; transition: all .15s; }
+.dl-btn:hover { transform: translateY(-1px); box-shadow: 0 3px 8px rgba(16,185,129,0.4); }
+.dl-btn:disabled { background: #1f3a2e; cursor: not-allowed; }
+.preview-btn { background: #2d3a4e; color: #e0e0e0; border: none; padding: 9px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; }
+.preview-btn:hover { background: #3a4a64; }
+</style>
+</head>
+<body>
+<div class="container">
+<header>
+  <h1>🌐 הורד מכל אתר</h1>
+  <p class="subtitle">חיפוש והורדה ללא הגבלה - yt-dlp תומך ב-1000+ אתרים</p>
+</header>
+
+<div class="nav">
+  <a href="/vimeo-downloader/">← חזור לאתר הראשי</a>
+  <a href="/vimeo-downloader/wipe.html">🗑️ מחק הכל</a>
+  <a href="https://github.com/yossi6742853/vimeo-downloader/actions" target="_blank">📊 Actions</a>
+</div>
+
+<!-- GitHub PAT (stored in session) -->
+<div class="card">
+  <h2>🔑 GitHub Token <span class="badge">פעם אחת</span></h2>
+  <label>Personal Access Token (PAT)</label>
+  <input type="password" id="pat" placeholder="ghp_..." autocomplete="off">
+  <div class="hint">צריך הרשאות <code>repo</code> + <code>workflow</code>. תיצור ב: <a href="https://github.com/settings/tokens/new?scopes=repo,workflow&description=universal-downloader" target="_blank">github.com/settings/tokens/new</a></div>
+</div>
+
+<!-- Direct URL download -->
+<div class="card">
+  <h2>📥 הורדה ישירה</h2>
+  <label>URL לכל אתר (YouTube, Vimeo, Twitter, TikTok, קובץ ישיר, וכו')</label>
+  <input type="text" id="dlUrl" placeholder="https://www.youtube.com/watch?v=... או https://example.com/file.mp4">
+
+  <label>שם קובץ (אופציונלי)</label>
+  <input type="text" id="dlName" placeholder="ריק = שם אוטומטי מהאתר">
+
+  <label>תיקיית Drive</label>
+  <input type="text" id="dlFolder" value="universal_downloads">
+
+  <label>פורמט yt-dlp</label>
+  <select id="dlFormat">
+    <option value="best">best - איכות הכי טובה (וידאו+אודיו)</option>
+    <option value="bestvideo+bestaudio/best">bestvideo+bestaudio - 4K אם זמין</option>
+    <option value="bestaudio">bestaudio - רק אודיו</option>
+    <option value="worst">worst - איכות נמוכה (מהיר)</option>
+  </select>
+
+  <button class="btn btn-primary" onclick="directDownload()">הורד עכשיו</button>
+  <div class="log" id="dlLog" style="display:none;"></div>
+</div>
+
+<!-- Universal Web Video Search -->
+<div class="card">
+  <h2>🔍 חיפוש סרטונים בכל הרשת <span class="badge">בלי שום הגבלה</span></h2>
+  <p class="hint">סורק <b>DuckDuckGo + Bing + Yandex + YouTube</b> במקביל ומשתמש ב-yt-dlp לבדוק שכל תוצאה אכן סרטון שאפשר להוריד. תומך בכל אתר וידאו ברשת — ישראלי, בינלאומי, כל שפה.</p>
+
+  <label>מה לחפש</label>
+  <input type="text" id="searchQ" placeholder="לדוגמה: שיעור על הלכות שבת הרב גולד">
+
+  <label>כמה סרטונים להחזיר</label>
+  <select id="searchMax">
+    <option value="10">10 סרטונים</option>
+    <option value="20">20 סרטונים</option>
+    <option value="30" selected>30 סרטונים</option>
+    <option value="50">50 סרטונים</option>
+    <option value="100">100 סרטונים</option>
+    <option value="200">200 סרטונים</option>
+    <option value="500">500 סרטונים (הכי הרבה זמן)</option>
+  </select>
+
+  <button class="btn btn-primary" onclick="search()">חפש בכל הרשת</button>
+
+  <div class="log" id="searchLog" style="display:none;"></div>
+  <div class="results" id="searchResults"></div>
+</div>
+
+</div>
+
+<script>
+const REPO = 'yossi6742853/vimeo-downloader';
+
+function log(elId, text, cls) {
+  const el = document.getElementById(elId);
+  el.style.display = 'block';
+  const div = document.createElement('div');
+  div.className = 'log-line ' + (cls || '');
+  div.textContent = '[' + new Date().toLocaleTimeString('he-IL') + '] ' + text;
+  el.appendChild(div);
+  el.scrollTop = el.scrollHeight;
+}
+
+function getPat() {
+  const pat = document.getElementById('pat').value.trim();
+  if (!pat) { alert('חסר GitHub token'); return null; }
+  return pat;
+}
+
+async function triggerWorkflow(workflowFile, inputs, logEl) {
+  const pat = getPat(); if (!pat) return false;
+  log(logEl, 'מפעיל ' + workflowFile + '...', 'log-info');
+  try {
+    const r = await fetch(`https://api.github.com/repos/${REPO}/actions/workflows/${workflowFile}/dispatches`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${pat}`,
+        'Accept': 'application/vnd.github+json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ ref: 'master', inputs })
+    });
+    if (r.status === 204) {
+      log(logEl, '✓ Workflow הופעל', 'log-ok');
+      log(logEl, 'עקוב ב: github.com/' + REPO + '/actions', 'log-info');
+      return true;
+    } else {
+      const err = await r.text();
+      log(logEl, '✗ שגיאה ' + r.status + ': ' + err.slice(0, 250), 'log-err');
+      return false;
+    }
+  } catch (e) {
+    log(logEl, '✗ שגיאת רשת: ' + e.message, 'log-err');
+    return false;
+  }
+}
+
+function directDownload() {
+  const url = document.getElementById('dlUrl').value.trim();
+  if (!url) return alert('הזן URL');
+  triggerWorkflow('universal-download.yml', {
+    url,
+    filename: document.getElementById('dlName').value.trim(),
+    drive_folder: document.getElementById('dlFolder').value.trim() || 'universal_downloads',
+    format: document.getElementById('dlFormat').value,
+  }, 'dlLog');
+}
+
+async function search() {
+  const q = document.getElementById('searchQ').value.trim();
+  if (!q) return alert('הזן שאילתה');
+  const max = document.getElementById('searchMax').value;
+  document.getElementById('searchResults').innerHTML = '';
+  log('searchLog', `מפעיל חיפוש בכל הרשת: "${q}" (עד ${max} תוצאות)`, 'log-info');
+
+  const ok = await triggerWorkflow('web-video-search.yml', { query: q, max_results: max }, 'searchLog');
+  if (!ok) return;
+
+  log('searchLog', 'הריצה התחילה. סורק DuckDuckGo + Bing + Yandex + YouTube...', 'log-info');
+  log('searchLog', 'בודק כל URL עם yt-dlp לוודא שזה אכן סרטון להורדה...', 'log-info');
+  log('searchLog', 'זמן ריצה משוער: 60-180 שניות. מחכה...', 'log-info');
+
+  const startTime = Date.now();
+  let lastTs = '';
+  const pollInterval = setInterval(async () => {
+    const elapsed = Math.floor((Date.now() - startTime) / 1000);
+    if (elapsed > 240) {
+      clearInterval(pollInterval);
+      log('searchLog', '⏱️ Timeout - בדוק ב-Actions: github.com/' + REPO + '/actions', 'log-err');
+      return;
+    }
+    try {
+      const r = await fetch(`https://raw.githubusercontent.com/${REPO}/master/search_results.json?_=${Date.now()}`);
+      if (r.ok) {
+        const data = await r.json();
+        if (data.query === q && data.timestamp !== lastTs) {
+          lastTs = data.timestamp;
+          clearInterval(pollInterval);
+          log('searchLog', `✓ ${data.count} תוצאות התקבלו!`, 'log-ok');
+          renderResults(data.results);
+        }
+      }
+    } catch (e) {}
+    log('searchLog', `... מחכה (${elapsed}s)`, 'log-line');
+  }, 8000);
+}
+
+function renderResults(results) {
+  const el = document.getElementById('searchResults');
+  if (!results || !results.length) {
+    el.innerHTML = '<div class="log-line log-err" style="grid-column:1/-1;">לא נמצאו תוצאות. נסה שאילתה אחרת או כתוב מילים נוספות.</div>';
+    return;
+  }
+  el.innerHTML = `<div class="results-meta">📊 ${results.length} סרטונים נמצאו · לחץ "הורד" לשמירה לדרייב או "צפה" לפתוח באתר המקורי</div>`;
+  results.forEach(r => {
+    const card = document.createElement('div');
+    card.className = 'result-card';
+    const dur = r.duration ? formatDuration(r.duration) : '';
+    const safeTitle = (r.title || 'video').replace(/[^\w֐-׿\s\-_]/g, '').trim().slice(0, 80) || 'video';
+    const source = detectSource(r.source, r.url);
+    const sourceClass = source.toLowerCase();
+
+    // Thumbnail
+    let thumbHtml = '';
+    if (r.thumbnail && r.thumbnail.startsWith('http')) {
+      thumbHtml = `<img src="${escapeAttr(r.thumbnail)}" alt="" loading="lazy" onerror="this.parentNode.innerHTML='<div class=placeholder>🎬</div>'+this.parentNode.querySelector('.duration')?.outerHTML+this.parentNode.querySelector('.source-badge')?.outerHTML">`;
+    } else {
+      thumbHtml = `<div class="placeholder">🎬</div>`;
+    }
+
+    card.innerHTML = `
+      <div class="result-thumb">
+        ${thumbHtml}
+        ${dur ? `<span class="duration">${dur}</span>` : ''}
+        <span class="source-badge ${sourceClass}">${source}</span>
+      </div>
+      <div class="result-body">
+        <div class="result-title" title="${escapeAttr(r.title)}">${escapeHtml(r.title)}</div>
+        ${r.uploader ? `<div class="result-uploader">👤 ${escapeHtml(r.uploader)}</div>` : ''}
+        <div class="result-url">${escapeHtml(getHost(r.url))}</div>
+        <div class="result-actions">
+          <button class="dl-btn">⬇️ הורד</button>
+          <button class="preview-btn" title="צפה במקור">👁️</button>
+        </div>
+      </div>
+    `;
+    card.querySelector('.dl-btn').addEventListener('click', () => downloadResult(r.url, safeTitle));
+    card.querySelector('.preview-btn').addEventListener('click', () => window.open(r.url, '_blank'));
+    el.appendChild(card);
+  });
+}
+
+function getHost(url) {
+  try { return new URL(url).hostname.replace(/^www\./, ''); }
+  catch { return url; }
+}
+
+function detectSource(source, url) {
+  if (source && source !== 'web') return source;
+  const u = (url || '').toLowerCase();
+  if (u.includes('youtube.com') || u.includes('youtu.be')) return 'YouTube';
+  if (u.includes('vimeo.com')) return 'Vimeo';
+  if (u.includes('dailymotion.com')) return 'Dailymotion';
+  if (u.includes('rumble.com')) return 'Rumble';
+  if (u.includes('odysee.com')) return 'Odysee';
+  if (u.includes('bitchute.com')) return 'BitChute';
+  if (u.includes('tiktok.com')) return 'TikTok';
+  if (u.includes('twitter.com') || u.includes('x.com')) return 'Twitter';
+  if (u.includes('facebook.com') || u.includes('fb.com')) return 'Facebook';
+  if (u.includes('instagram.com')) return 'Instagram';
+  if (u.includes('hidabroot.org')) return 'הידברות';
+  if (u.includes('archive.org')) return 'Archive';
+  return 'Web';
+}
+
+function downloadResult(url, title) {
+  log('searchLog', `שולח להורדה: ${title}`, 'log-info');
+  triggerWorkflow('universal-download.yml', {
+    url,
+    filename: title,
+    drive_folder: 'universal_downloads',
+    format: 'best',
+  }, 'searchLog');
+}
+
+function formatDuration(s) {
+  s = parseInt(s);
+  if (!s || isNaN(s)) return '';
+  const m = Math.floor(s / 60), sec = s % 60;
+  if (m >= 60) {
+    const h = Math.floor(m / 60), mm = m % 60;
+    return `${h}:${String(mm).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+  }
+  return `${m}:${String(sec).padStart(2,'0')}`;
+}
+
+function escapeHtml(s) {
+  return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function escapeAttr(s) {
+  return String(s || '').replace(/"/g, '&quot;');
+}
+
+// Save PAT in session
+document.getElementById('pat').addEventListener('input', e => sessionStorage.setItem('gh_pat', e.target.value));
+const saved = sessionStorage.getItem('gh_pat');
+if (saved) document.getElementById('pat').value = saved;
+</script>
+</body>
+</html>

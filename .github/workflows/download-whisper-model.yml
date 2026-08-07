@@ -1,0 +1,60 @@
+name: Download Whisper Model
+on:
+  workflow_dispatch:
+    inputs:
+      model_size:
+        description: 'Model size: tiny, base, small, medium, large-v3'
+        required: false
+        default: 'small'
+
+permissions: { contents: write }
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - run: pip install -q huggingface_hub requests
+      - name: Download model from HF
+        run: |
+          MODEL="${{ github.event.inputs.model_size }}"
+          mkdir -p model
+          python3 -c "
+          from huggingface_hub import snapshot_download
+          path = snapshot_download(repo_id='Systran/faster-whisper-${MODEL}', local_dir='model')
+          print('downloaded to', path)
+          "
+          ls -la model/
+      - name: Zip and upload to Google Drive
+        env:
+          CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+        run: |
+          MODEL="${{ github.event.inputs.model_size }}"
+          ZIP="faster-whisper-${MODEL}.zip"
+          (cd model && zip -r "../$ZIP" .)
+          ls -lh "$ZIP"
+          python3 << PYEOF
+          import requests, os
+          tk = requests.post('https://oauth2.googleapis.com/token', data={
+              'client_id': os.environ['CLIENT_ID'],
+              'client_secret': os.environ['CLIENT_SECRET'],
+              'refresh_token': os.environ['REFRESH_TOKEN'],
+              'grant_type': 'refresh_token'
+          }).json()['access_token']
+          h = {'Authorization': f'Bearer {tk}'}
+          r = requests.get('https://www.googleapis.com/drive/v3/files',
+              params={'q': "name='סרטונים שהורדו' and mimeType='application/vnd.google-apps.folder' and trashed=false", 'fields': 'files(id)'}, headers=h)
+          fid = r.json()['files'][0]['id']
+          init = requests.post(
+              'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,name,webViewLink',
+              headers={**h, 'Content-Type': 'application/json'},
+              json={'name': '${ZIP}', 'parents': [fid]}
+          )
+          up_url = init.headers.get('Location')
+          with open('${ZIP}', 'rb') as f:
+              up = requests.put(up_url, data=f, headers={'Content-Type': 'application/zip'})
+          d = up.json()
+          print('UPLOADED:', d.get('webViewLink',''))
+          PYEOF

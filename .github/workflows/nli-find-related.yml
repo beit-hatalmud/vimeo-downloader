@@ -1,0 +1,38 @@
+name: NLI Find Related
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'NLI page URL to scan for related items'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  find:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      flaresolverr:
+        image: ghcr.io/flaresolverr/flaresolverr:latest
+        ports:
+          - 8191:8191
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install
+        run: pip install requests
+      - name: Wait for FlareSolverr
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fs http://localhost:8191/ >/dev/null 2>&1; then break; fi
+            sleep 2
+          done
+      - name: Find related
+        env:
+          FLARESOLVERR_URL: http://localhost:8191/v1
+        run: python3 nli_find_related.py "${{ github.event.inputs.url }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: related-urls
+          path: related_urls.json

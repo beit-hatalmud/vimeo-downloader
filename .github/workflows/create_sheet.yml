@@ -1,0 +1,133 @@
+name: Create Residents Sheet v2
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  create:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create sheet + apply formatting
+        env:
+          CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+        run: |
+          cat > /tmp/csv_content.py << 'PYEOF'
+          import urllib.request, json
+          # Fetch phonebook JSON from a gist or hardcoded
+          # Or embed CSV inline
+          CSV = """#,שם משפחה,שם פרטי,טלפון בעל,טלפון אישה,טלפון בית,מתפלל היכן?
+          $CSV_ROWS
+          """
+          PYEOF
+          
+          # Actually just embed data directly
+          python3 << 'PYEOF'
+          import os, json, urllib.request, urllib.parse, base64, csv, io
+          
+          # OAuth token
+          data = urllib.parse.urlencode({
+              'client_id': os.environ['CLIENT_ID'],
+              'client_secret': os.environ['CLIENT_SECRET'],
+              'refresh_token': os.environ['REFRESH_TOKEN'],
+              'grant_type': 'refresh_token'
+          }).encode()
+          tok = json.load(urllib.request.urlopen('https://oauth2.googleapis.com/token', data=data))['access_token']
+          H = {'Authorization': f'Bearer {tok}'}
+          
+          # Fetch CSV from repo raw
+          csv_url = 'https://raw.githubusercontent.com/yossi6742853/vimeo-downloader/master/residents_v2.csv'
+          csv_content = urllib.request.urlopen(csv_url).read().decode('utf-8-sig')
+          csv_bytes = csv_content.encode('utf-8')
+          
+          # Upload as CSV to Drive with conversion to Google Sheets
+          # Use multipart with target mime = spreadsheet
+          meta = json.dumps({
+              "name": "תושבי מעלה עמוס — סימון בית כנסת",
+              "mimeType": "application/vnd.google-apps.spreadsheet"
+          }).encode()
+          boundary = '----claudebnd'
+          body = (
+              f'--{boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n'.encode()
+              + meta + f'\r\n--{boundary}\r\nContent-Type: text/csv\r\n\r\n'.encode()
+              + csv_bytes + f'\r\n--{boundary}--'.encode()
+          )
+          req = urllib.request.Request(
+              'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart',
+              data=body,
+              headers={**H, 'Content-Type': f'multipart/related; boundary={boundary}'},
+              method='POST'
+          )
+          res = json.load(urllib.request.urlopen(req, timeout=120))
+          sheet_id = res['id']
+          print(f'Sheet created: {sheet_id}')
+          print(f'URL: https://docs.google.com/spreadsheets/d/{sheet_id}/edit')
+          
+          # Now try to apply dropdown via Sheets API (may fail due to scope)
+          try:
+              # Get first sheet gid
+              meta_url = f'https://sheets.googleapis.com/v4/spreadsheets/{sheet_id}?fields=sheets.properties'
+              r = urllib.request.Request(meta_url, headers=H)
+              meta = json.load(urllib.request.urlopen(r, timeout=30))
+              gid = meta['sheets'][0]['properties']['sheetId']
+              print(f'Sheet gid: {gid}')
+              
+              batch = {
+                  "requests": [
+                      # Dropdown on column G (index 6), rows 2-179
+                      {"setDataValidation": {
+                          "range": {"sheetId": gid, "startRowIndex": 1, "endRowIndex": 179, "startColumnIndex": 6, "endColumnIndex": 7},
+                          "rule": {
+                              "condition": {"type": "ONE_OF_LIST", "values": [
+                                  {"userEnteredValue": "צעירים"},
+                                  {"userEnteredValue": "בית זכריה"},
+                                  {"userEnteredValue": "ספרדי"},
+                                  {"userEnteredValue": "אחר"}
+                              ]},
+                              "showCustomUi": True,
+                              "strict": False
+                          }
+                      }},
+                      # Freeze header row
+                      {"updateSheetProperties": {
+                          "properties": {"sheetId": gid, "gridProperties": {"frozenRowCount": 1}, "rightToLeft": True},
+                          "fields": "gridProperties.frozenRowCount,rightToLeft"
+                      }},
+                      # Header formatting
+                      {"repeatCell": {
+                          "range": {"sheetId": gid, "startRowIndex": 0, "endRowIndex": 1},
+                          "cell": {"userEnteredFormat": {
+                              "backgroundColor": {"red": 0.05, "green": 0.23, "blue": 0.18},
+                              "textFormat": {"foregroundColor": {"red":1,"green":1,"blue":1}, "fontSize": 12, "bold": True},
+                              "horizontalAlignment": "CENTER",
+                              "verticalAlignment": "MIDDLE"
+                          }},
+                          "fields": "userEnteredFormat"
+                      }},
+                      # Alternating rows
+                      {"addBanding": {
+                          "bandedRange": {
+                              "range": {"sheetId": gid, "startRowIndex": 0, "endRowIndex": 179, "startColumnIndex": 0, "endColumnIndex": 7},
+                              "rowProperties": {
+                                  "headerColor": {"red": 0.05, "green": 0.23, "blue": 0.18},
+                                  "firstBandColor": {"red": 1, "green": 1, "blue": 1},
+                                  "secondBandColor": {"red": 0.96, "green": 0.94, "blue": 0.82}
+                              }
+                          }
+                      }}
+                  ]
+              }
+              br = urllib.request.Request(
+                  f'https://sheets.googleapis.com/v4/spreadsheets/{sheet_id}:batchUpdate',
+                  data=json.dumps(batch).encode(),
+                  headers={**H, 'Content-Type': 'application/json'},
+                  method='POST'
+              )
+              bres = json.load(urllib.request.urlopen(br, timeout=60))
+              print(f'Applied {len(bres.get("replies",[]))} format ops')
+          except Exception as e:
+              print(f'Formatting failed (sheet still created): {e}')
+          PYEOF

@@ -1,0 +1,99 @@
+name: NLI to Drive
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'NLI page URL (e.g. https://www.nli.org.il/he/audio/NNL_ALEPH...)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      flaresolverr:
+        image: ghcr.io/flaresolverr/flaresolverr:latest
+        ports:
+          - 8191:8191
+        env:
+          LOG_LEVEL: info
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
+          pip install -U yt-dlp playwright requests curl_cffi
+          playwright install chromium
+
+      - name: Wait for FlareSolverr ready
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fs http://localhost:8191/ >/dev/null 2>&1; then
+              echo "FlareSolverr ready (attempt $i)"
+              break
+            fi
+            sleep 2
+          done
+
+      - name: Extract NLI media
+        env:
+          FLARESOLVERR_URL: http://localhost:8191/v1
+        run: |
+          mkdir -p videos
+          python3 nli_extract.py "${{ github.event.inputs.url }}"
+          ls -la videos/ || true
+
+      - name: Upload to Google Drive
+        env:
+          CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+          SOURCE_URL: ${{ github.event.inputs.url }}
+        run: |
+          python3 << 'PYEOF'
+          import requests, os, glob, mimetypes
+          tk = requests.post("https://oauth2.googleapis.com/token", data={
+              "client_id": os.environ["CLIENT_ID"],
+              "client_secret": os.environ["CLIENT_SECRET"],
+              "refresh_token": os.environ["REFRESH_TOKEN"],
+              "grant_type": "refresh_token"
+          }).json()["access_token"]
+          h = {"Authorization": f"Bearer {tk}"}
+          r = requests.get("https://www.googleapis.com/drive/v3/files",
+              params={"q": "name='סרטונים שהורדו' and mimeType='application/vnd.google-apps.folder' and trashed=false", "fields": "files(id)"},
+              headers=h)
+          files = r.json().get("files", [])
+          folder_id = files[0]["id"] if files else requests.post("https://www.googleapis.com/drive/v3/files",
+              headers={**h, "Content-Type": "application/json"},
+              json={"name": "סרטונים שהורדו", "mimeType": "application/vnd.google-apps.folder"}).json()["id"]
+
+          uploaded = []
+          for fpath in glob.glob("videos/*"):
+              fname = os.path.basename(fpath)
+              if fname.startswith("_"):
+                  continue
+              size = os.path.getsize(fpath)
+              if size < 1000:
+                  print(f"Skip tiny: {fname} ({size}b)")
+                  continue
+              print(f"Upload: {fname} ({size/1024/1024:.2f} MB)")
+              mime = mimetypes.guess_type(fname)[0] or "audio/mpeg"
+              init = requests.post(
+                  "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,name,webViewLink",
+                  headers={**h, "Content-Type": "application/json"},
+                  json={"name": fname, "parents": [folder_id]}
+              )
+              up_url = init.headers.get("Location")
+              with open(fpath, "rb") as f:
+                  up = requests.put(up_url, data=f, headers={"Content-Type": mime})
+              if up.ok:
+                  d = up.json()
+                  print(f"  → ID {d['id']} : {d.get('webViewLink','')}")
+                  uploaded.append(d)
+          print(f"\nDone. Uploaded {len(uploaded)} file(s).")
+          PYEOF

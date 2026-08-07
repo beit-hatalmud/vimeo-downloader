@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>שידור חי - אילה</title>
+  <style>
+    body { font-family: -apple-system, system-ui, Arial, sans-serif; background: #111; color: #eee; margin: 0; padding: 0; }
+    header { padding: 16px; background: #222; text-align: center; font-size: 22px; font-weight: bold; }
+    .channels { display: flex; gap: 8px; padding: 12px; background: #1a1a1a; overflow-x: auto; }
+    .channel { padding: 12px 18px; background: #333; border-radius: 8px; cursor: pointer; white-space: nowrap; font-size: 15px; }
+    .channel.active { background: #c33; }
+    .channel:hover { background: #444; }
+    #player-wrap { padding: 16px; text-align: center; }
+    iframe, video { width: 100%; max-width: 1200px; height: 70vh; min-height: 400px; background: #000; border-radius: 8px; border: none; }
+    .status { padding: 10px; text-align: center; color: #aaa; min-height: 24px; }
+    .info { font-size: 12px; color: #888; padding: 12px; max-width: 800px; margin: 0 auto; line-height: 1.6; }
+    .info a { color: #6cf; }
+  </style>
+</head>
+<body>
+  <header>📺 שידור חי</header>
+  <div class="channels" id="channels"></div>
+  <div id="player-wrap">
+    <iframe id="player" allow="autoplay; encrypted-media; fullscreen" allowfullscreen></iframe>
+    <div class="status" id="status"></div>
+  </div>
+  <div class="info">
+    שידורים דרך YouTube embed (שנטפרי מאפשר). ערוצים שאין להם YouTube live פעיל יראו "ערוץ לא משדר עכשיו" — בדוק שוב מאוחר יותר.
+  </div>
+
+<script>
+const CHANNELS = [
+  // 1. Hidabroot - works directly (NetFree-approved)
+  { id: 'hidabroot', name: 'הידברות LIVE', type: 'hls', url: 'https://cdn.cybercdn.live/HidabrootIL/Live97/playlist.m3u8' },
+  // 2. TBN Israel - religious 24/7 YouTube, likely NetFree-cached
+  { id: 'tbn-israel', name: 'TBN ישראל 24/7', type: 'yt-watch', videoId: 'dZSb4NtQ3WI' },
+  // 3-N: YouTube channels (open in new tab - NetFree blocks YT embed but allows direct)
+  { id: 'channel14', name: 'ערוץ 14', type: 'youtube', channelId: 'UCKEImtWikw9usC1pl_9m1nQ' },
+  { id: 'kan11', name: 'כאן 11', type: 'youtube', channelId: 'UCKqFqiCe1dCUxRe0_YNZ6gg' },
+  { id: 'kan-news', name: 'כאן חדשות', type: 'youtube', channelId: 'UC_HwfTAcjBESKZRJq6BTCpg' },
+  { id: 'kan-digital', name: 'כאן דיגיטל', type: 'youtube', channelId: 'UCDJ6HHS5wkNaSREumdJRYhg' },
+  { id: 'reshet13', name: 'רשת 13', type: 'youtube', channelId: 'UCjhJFNaldjzfQI0aJ_wjUlA' },
+  { id: 'news13', name: 'חדשות 13', type: 'youtube', channelId: 'UCvQmPpU20hw1Trss_CVwaew' },
+  // Audio-only alternatives (NetFree allows audio)
+  { id: 'kan-radio', name: 'כאן רדיו', type: 'audio', url: 'https://kanlive.media.kan.org.il/icast/IbaRadio11-AudioOnly' },
+  { id: 'reshet-bet', name: 'רשת ב\'', type: 'audio', url: 'https://kanlive.media.kan.org.il/icast/IbaRadio12-AudioOnly' },
+];
+
+const player = document.getElementById('player');
+const statusEl = document.getElementById('status');
+const channelsEl = document.getElementById('channels');
+
+function renderChannels() {
+  CHANNELS.forEach((ch, i) => {
+    const el = document.createElement('div');
+    el.className = 'channel' + (i === 0 ? ' active' : '');
+    el.textContent = ch.name;
+    el.dataset.id = ch.id;
+    el.addEventListener('click', () => switchChannel(ch));
+    channelsEl.appendChild(el);
+  });
+}
+
+function switchChannel(ch) {
+  document.querySelectorAll('.channel').forEach(el => {
+    el.classList.toggle('active', el.dataset.id === ch.id);
+  });
+  statusEl.textContent = `טוען ${ch.name}...`;
+
+  if (ch.type === 'chunks') {
+    // Load chunks from GitHub Pages and play as HLS
+    player.removeAttribute('src');
+    statusEl.innerHTML = `<iframe src="hls-chunks.html?ch=${ch.id}&name=${encodeURIComponent(ch.name)}" style="width:100%;max-width:1200px;height:70vh;border:none"></iframe>`;
+  } else if (ch.type === 'yt-watch') {
+    // Direct video embed - if NetFree blocks, fall back to new tab
+    const url = `https://www.youtube.com/watch?v=${ch.videoId}`;
+    player.removeAttribute('src');
+    statusEl.innerHTML = `<a href="${url}" target="_blank" style="color:#6cf;font-size:18px;text-decoration:none">▶ ${ch.name} ב-YouTube</a>`;
+  } else if (ch.type === 'audio') {
+    player.removeAttribute('src');
+    statusEl.innerHTML = `<audio controls autoplay src="${ch.url}" style="width:80%;max-width:600px"></audio><br><small style="color:#888">${ch.name} - אודיו בלבד</small>`;
+  } else if (ch.type === 'youtube') {
+    // NetFree blocks YouTube embeds (only allows direct youtube.com).
+    // Solution: open YouTube live page in NEW TAB
+    let url;
+    if (ch.channelId) {
+      url = `https://www.youtube.com/channel/${ch.channelId}/live`;
+    } else if (ch.channel) {
+      url = `https://www.youtube.com/${ch.channel}/live`;
+    }
+    player.removeAttribute('src');
+    statusEl.innerHTML = `<a href="${url}" target="_blank" style="color:#6cf;font-size:18px;text-decoration:none">▶ פתח את ${ch.name} ב-YouTube (לשונית חדשה)</a><br><small style="color:#888">נטפרי חוסם iframe של YouTube אבל מאשר פתיחה ישירה</small>`;
+  } else if (ch.type === 'hls') {
+    // HLS via separate player page
+    player.src = `hls.html?url=${encodeURIComponent(ch.url)}&label=${encodeURIComponent(ch.name)}`;
+    statusEl.textContent = `${ch.name} - HLS חי`;
+  }
+}
+
+renderChannels();
+switchChannel(CHANNELS[0]);
+</script>
+</body>
+</html>

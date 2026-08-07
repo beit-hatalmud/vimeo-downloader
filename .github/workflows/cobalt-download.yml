@@ -1,0 +1,119 @@
+name: Cobalt YouTube Download
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'YouTube URL'
+        required: true
+      drive_folder:
+        description: 'Drive folder'
+        required: false
+        default: 'הורדה מהירה'
+
+permissions:
+  contents: read
+
+env:
+  CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+  CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+  REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Install
+        run: pip install requests
+
+      - name: Download via cobalt
+        env:
+          URL: ${{ github.event.inputs.url }}
+          FOLDER: ${{ github.event.inputs.drive_folder }}
+        run: |
+          python3 << 'PYEOF'
+          import os, requests, re
+          ua = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+
+          # Try multiple cobalt instances
+          instances = [
+              "https://api.cobalt.tools/api/json",
+              "https://co.wuk.sh/api/json",
+              "https://cobalt-api.kwiatekmiki.com/api/json",
+              "https://api.cobalt-tools.com/api/json",
+          ]
+
+          download_url = None
+          filename = None
+          for api in instances:
+              try:
+                  print(f"Trying {api}...")
+                  r = requests.post(api,
+                      json={"url": os.environ["URL"], "vQuality": "720", "filenamePattern": "basic"},
+                      headers={"Accept": "application/json", "Content-Type": "application/json", **ua},
+                      timeout=30)
+                  d = r.json()
+                  print(f"  status: {d.get('status')}")
+                  if d.get("status") in ("redirect", "stream", "tunnel"):
+                      download_url = d.get("url")
+                      filename = d.get("filename", "video.mp4")
+                      print(f"  Got URL!")
+                      break
+              except Exception as e:
+                  print(f"  err: {e}")
+
+          # Fallback: try yt-dlp without cobalt
+          if not download_url:
+              print("All cobalt instances failed. Trying yt-dlp directly...")
+              import subprocess
+              subprocess.run(["pip", "install", "yt-dlp"], check=True, capture_output=True)
+              subprocess.run([
+                  "yt-dlp", os.environ["URL"],
+                  "--merge-output-format", "mp4",
+                  "-f", "best[height<=720]",
+                  "-o", "video.%(ext)s"
+              ], check=False)
+              if os.path.exists("video.mp4"):
+                  filename = "video.mp4"
+                  download_url = None  # already downloaded
+          else:
+              print(f"Downloading {filename}...")
+              r = requests.get(download_url, headers=ua, stream=True, timeout=600)
+              with open(filename, "wb") as f:
+                  for chunk in r.iter_content(8192*8):
+                      f.write(chunk)
+
+          if not filename or not os.path.exists(filename):
+              print("FAILED: no file")
+              exit(1)
+
+          size = os.path.getsize(filename)
+          print(f"Got: {filename} ({size/(1024*1024):.1f} MB)")
+
+          # Upload to Drive
+          tok = requests.post("https://oauth2.googleapis.com/token", data={
+              "client_id": os.environ["CLIENT_ID"], "client_secret": os.environ["CLIENT_SECRET"],
+              "refresh_token": os.environ["REFRESH_TOKEN"], "grant_type": "refresh_token"
+          }).json()["access_token"]
+          hdr = {"Authorization": f"Bearer {tok}"}
+          folder = os.environ["FOLDER"]
+          q = f"name='{folder}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
+          r = requests.get("https://www.googleapis.com/drive/v3/files",
+              params={"q": q, "fields": "files(id)"}, headers=hdr).json()
+          if r.get("files"):
+              parent = r["files"][0]["id"]
+          else:
+              parent = requests.post("https://www.googleapis.com/drive/v3/files",
+                  headers={**hdr, "Content-Type": "application/json"},
+                  json={"name": folder, "mimeType": "application/vnd.google-apps.folder"}).json()["id"]
+
+          up = requests.post("https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable",
+              headers={**hdr, "Content-Type": "application/json"},
+              json={"name": filename, "parents": [parent]})
+          loc = up.headers.get("Location")
+          with open(filename, "rb") as f:
+              r = requests.put(loc, data=f.read())
+          if r.status_code in (200, 201):
+              fid = r.json().get("id")
+              print(f"UPLOADED: https://drive.google.com/file/d/{fid}/view")
+          PYEOF

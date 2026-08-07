@@ -1,0 +1,22 @@
+name: Get VPN Installer
+on:
+  workflow_dispatch:
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Download Windscribe
+        run: |
+          mkdir -p files
+          # Download Windows installer
+          curl -L -o "files/Windscribe_Setup.exe" "https://windscribe.com/install/desktop/windows" --max-time 120
+          ls -lh files/
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: windscribe-installer
+          path: files/
+          retention-days: 3

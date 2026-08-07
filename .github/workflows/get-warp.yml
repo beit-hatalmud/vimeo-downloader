@@ -1,0 +1,17 @@
+name: Get WARP
+on:
+  workflow_dispatch:
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Cloudflare WARP for Windows
+        run: |
+          mkdir -p files
+          curl -L -o "files/Cloudflare_WARP.msi" "https://1111-releases.cloudflareclient.com/windows/Cloudflare_WARP_Release-x64.msi"
+          ls -lh files/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: warp-installer
+          path: files/
+          retention-days: 3

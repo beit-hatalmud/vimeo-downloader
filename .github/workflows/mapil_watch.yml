@@ -1,0 +1,132 @@
+name: Mapil Hourly Watch
+on:
+  schedule:
+    - cron: '0 * * * *'  # כל שעה עגולה
+  workflow_dispatch:
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Watch + transcribe + email
+        env:
+          YEMOT_TOKEN: ${{ secrets.YEMOT_TOKEN_0733518751 }}
+          GEMINI_KEY: ${{ secrets.GEMINI_KEY }}
+          GMAIL_USER: 6742853@gmail.com
+          GMAIL_PASS: ${{ secrets.GMAIL_APP_PASS }}
+        run: |
+          python3 << 'PYEOF'
+          import urllib.request, urllib.parse, json, os, base64, datetime, smtplib, ssl
+          from email.mime.text import MIMEText
+          from email.mime.multipart import MIMEMultipart
+          from email.mime.base import MIMEBase
+          from email import encoders
+
+          TOKEN = os.environ['YEMOT_TOKEN']
+          GEMINI_KEY = os.environ['GEMINI_KEY']
+          GMAIL_USER = os.environ['GMAIL_USER']
+          GMAIL_PASS = os.environ['GMAIL_PASS']
+
+          def api(method, params=None):
+              data = urllib.parse.urlencode({**(params or {}), 'token': TOKEN}).encode()
+              req = urllib.request.Request(f'https://www.call2all.co.il/ym/api/{method}', data=data, method='POST')
+              with urllib.request.urlopen(req, timeout=30) as r:
+                  return json.loads(r.read().decode())
+
+          def download(path):
+              url = f'https://www.call2all.co.il/ym/api/DownloadFile?path={urllib.parse.quote(path)}&token={TOKEN}'
+              with urllib.request.urlopen(url, timeout=120) as r:
+                  return r.read()
+
+          def transcribe(audio_bytes, mime='audio/wav'):
+              b64 = base64.b64encode(audio_bytes).decode()
+              body = {'contents': [{'parts': [
+                  {'text': 'תמלל בעברית. תזהה השם של המקליט בתחילה ואת ברכת המפיל. פורמט:\nשם: [שם]\nברכה: [תמלול]'},
+                  {'inlineData': {'mimeType': mime, 'data': b64}}
+              ]}]}
+              url = f'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_KEY}'
+              req = urllib.request.Request(url, data=json.dumps(body).encode(),
+                                           headers={'Content-Type':'application/json'}, method='POST')
+              with urllib.request.urlopen(req, timeout=120) as r:
+                  d = json.loads(r.read().decode())
+              return d['candidates'][0]['content']['parts'][0]['text']
+
+          def send_email(subject, html, audio_bytes=None, audio_name=None):
+              msg = MIMEMultipart('mixed')
+              msg['From'] = GMAIL_USER
+              msg['To'] = GMAIL_USER
+              msg['Subject'] = subject
+              alt = MIMEMultipart('alternative')
+              alt.attach(MIMEText(html, 'html', 'utf-8'))
+              msg.attach(alt)
+              if audio_bytes:
+                  p = MIMEBase('application', 'octet-stream')
+                  p.set_payload(audio_bytes)
+                  encoders.encode_base64(p)
+                  p.add_header('Content-Disposition', f'attachment; filename="{audio_name}"')
+                  msg.attach(p)
+              with smtplib.SMTP_SSL('smtp.gmail.com', 465, context=ssl.create_default_context(), timeout=30) as s:
+                  s.login(GMAIL_USER, GMAIL_PASS)
+                  s.send_message(msg)
+
+          # Get recordings
+          r = api('GetIVR2Dir', {'path': 'ivr2:/5/1'})
+          today_log = []
+          for f in r.get('files', []):
+              if not isinstance(f, dict): continue
+              name = f.get('name', '')
+              if not (name.endswith('.wav') or name.endswith('.mp3')): continue
+              if name.startswith('M'): continue
+
+              remote = f'ivr2:/5/1/{name}'
+              try:
+                  audio = download(remote)
+              except Exception as e:
+                  print(f'DL err {name}: {e}'); continue
+              if len(audio) < 5000:
+                  # short - delete
+                  api('FileAction', {'action': 'delete', 'what': remote})
+                  continue
+
+              try:
+                  text = transcribe(audio)
+              except Exception as e:
+                  text = f'(תמלול נכשל: {e})'
+
+              mtime = f.get('mtime', '')
+              duration = f.get('duration', 0)
+              phone = f.get('phone', '')
+
+              # Immediate email with audio
+              html = f'<div dir="rtl" style="font-family:David;"><h2>🎤 הקלטה חדשה - ברכת המפיל</h2>'
+              html += f'<p><b>שם הקובץ:</b> {name}</p>'
+              html += f'<p><b>זמן:</b> {mtime}</p>'
+              html += f'<p><b>משך:</b> {duration}s</p>'
+              html += f'<p><b>טלפון:</b> {phone}</p>'
+              html += f'<h3>תמלול:</h3><pre>{text}</pre></div>'
+              try:
+                  send_email(f'🎤 הקלטת מפיל: {name}', html, audio, name)
+                  # Only delete after email sent
+                  api('FileAction', {'action': 'delete', 'what': remote})
+                  today_log.append({'name':name,'mtime':mtime,'duration':duration,'text':text,'phone':phone})
+                  print(f'OK + DELETED: {name}')
+              except Exception as e:
+                  print(f'Email/delete err {name}: {e}')
+
+          # Daily report at 23:xx
+          if datetime.datetime.now().hour == 23 and today_log:
+              today = datetime.date.today().isoformat()
+              html = f'<div dir="rtl" style="font-family:David;">'
+              html += f'<p>בס"ד<br>השוליה של יוסף</p>'
+              html += f'<h2>📋 דוח יומי מפיל - {today}</h2>'
+              html += f'<p>סה"כ {len(today_log)} הקלטות:</p>'
+              html += '<table border="1" cellpadding="8" style="border-collapse:collapse;"><tr style="background:#1E3A5F;color:#FAF3E0;"><th>שם</th><th>זמן</th><th>טלפון</th><th>תמלול</th></tr>'
+              for e in today_log:
+                  html += f'<tr><td>{e["name"]}</td><td>{e["mtime"]}</td><td>{e["phone"]}</td><td>{e["text"]}</td></tr>'
+              html += '</table></div>'
+              send_email(f'📋 דוח מפיל יומי {today} - {len(today_log)} הקלטות', html)
+              print('Daily report sent')
+
+          print(f'Done. New: {len(today_log)}')
+          PYEOF

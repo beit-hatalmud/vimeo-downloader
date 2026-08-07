@@ -1,0 +1,188 @@
+name: Aprochim Audio Batch
+on:
+  workflow_dispatch:
+    inputs:
+      query:
+        description: 'YouTube search query'
+        required: true
+        default: 'אפרוחים שיר ילדים'
+      count:
+        description: 'How many top results to download'
+        required: false
+        default: '8'
+      folder_name:
+        description: 'Drive subfolder name (under "סרטונים שהורדו")'
+        required: false
+        default: 'שירי אפרוחים'
+
+permissions:
+  contents: read
+
+jobs:
+  search-and-download:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Cloudflare WARP
+        uses: fscarmen/warp-on-actions@v1.1
+        with:
+          stack: dual
+
+      - name: Install tools (yt-dlp + ffmpeg + Deno for JS challenge)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
+          pip install -U yt-dlp requests
+          curl -fsSL https://deno.land/install.sh | sh
+          echo "$HOME/.deno/bin" >> $GITHUB_PATH
+
+      - name: Search YouTube (gather URLs)
+        env:
+          QUERY: ${{ github.event.inputs.query }}
+          COUNT: ${{ github.event.inputs.count }}
+        run: |
+          set +e
+          mkdir -p audio
+          N="${COUNT:-8}"
+          echo "Search query: $QUERY"
+          echo "Top N: $N"
+          echo "IP after WARP:"; curl -s ifconfig.me; echo
+
+          # Search via tv client (most permissive for search), get video IDs only
+          SEARCH_OK=0
+          for SC in tv ios web android; do
+            echo "--- search via player_client=$SC ---"
+            yt-dlp --extractor-args "youtube:player_client=$SC" \
+              --skip-download --get-id \
+              "ytsearch${N}:${QUERY}" 2>&1 | tee search.out
+            grep -E '^[A-Za-z0-9_-]{11}$' search.out > video_ids.txt 2>/dev/null
+            CNT=$(wc -l < video_ids.txt 2>/dev/null || echo 0)
+            if [ "$CNT" -gt 0 ]; then
+              echo "Found $CNT video IDs via $SC"
+              SEARCH_OK=1
+              break
+            fi
+          done
+          if [ "$SEARCH_OK" = "0" ]; then
+            echo "Search failed for all clients"
+            exit 1
+          fi
+          echo "=== Video IDs to download ==="
+          cat video_ids.txt
+
+      - name: Download each as MP3 (fallback through clients)
+        run: |
+          set +e
+          mkdir -p audio
+          while read -r VID; do
+            [ -z "$VID" ] && continue
+            URL="https://www.youtube.com/watch?v=$VID"
+            echo "================ $URL ================"
+            DOWNLOADED=0
+            for SC in tv ios web android; do
+              echo "--- try $SC ---"
+              # Audio: bestaudio + extract to mp3
+              yt-dlp --extractor-args "youtube:player_client=$SC" \
+                --no-overwrites \
+                -f "bestaudio/best" \
+                -x --audio-format mp3 --audio-quality 0 \
+                --add-metadata \
+                -o "audio/%(uploader)s - %(title)s [%(id)s].%(ext)s" \
+                "$URL" 2>&1 | tail -15
+              if ls audio/*"$VID"* >/dev/null 2>&1; then
+                echo "OK via $SC"
+                DOWNLOADED=1
+                break
+              fi
+            done
+            if [ "$DOWNLOADED" = "0" ]; then
+              echo "FAILED: $VID"
+            fi
+          done < video_ids.txt
+          echo
+          echo "=== Files ==="
+          ls -lh audio/ || echo "no files"
+          CNT=$(ls -1 audio/*.mp3 2>/dev/null | wc -l)
+          echo "TOTAL MP3s: $CNT"
+          [ "$CNT" -gt 0 ]
+
+      - name: Upload MP3s to Drive subfolder
+        if: always()
+        env:
+          CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+          FOLDER_NAME: ${{ github.event.inputs.folder_name }}
+        run: |
+          if [ -z "$(ls -A audio/ 2>/dev/null)" ]; then
+            echo "No audio files to upload."
+            exit 0
+          fi
+          python3 << 'PYEOF'
+          import os, glob, requests, mimetypes
+
+          token = requests.post("https://oauth2.googleapis.com/token", data={
+              "client_id": os.environ["CLIENT_ID"],
+              "client_secret": os.environ["CLIENT_SECRET"],
+              "refresh_token": os.environ["REFRESH_TOKEN"],
+              "grant_type": "refresh_token"
+          }).json()["access_token"]
+          h = {"Authorization": f"Bearer {token}"}
+
+          root_name = "סרטונים שהורדו"
+          q = "name='%s' and mimeType='application/vnd.google-apps.folder' and trashed=false" % root_name
+          r = requests.get("https://www.googleapis.com/drive/v3/files",
+              params={"q": q, "fields": "files(id,name)"}, headers=h).json()
+          if r.get("files"):
+              root_id = r["files"][0]["id"]
+          else:
+              cr = requests.post("https://www.googleapis.com/drive/v3/files",
+                  headers={**h, "Content-Type": "application/json"},
+                  json={"name": root_name, "mimeType": "application/vnd.google-apps.folder"}).json()
+              root_id = cr["id"]
+          print(f"Root folder: {root_name} ({root_id})")
+
+          sub = os.environ["FOLDER_NAME"] or "שירי אפרוחים"
+          q2 = "name='%s' and '%s' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false" % (sub, root_id)
+          r2 = requests.get("https://www.googleapis.com/drive/v3/files",
+              params={"q": q2, "fields": "files(id,name)"}, headers=h).json()
+          if r2.get("files"):
+              dest = r2["files"][0]["id"]
+          else:
+              cr2 = requests.post("https://www.googleapis.com/drive/v3/files",
+                  headers={**h, "Content-Type": "application/json"},
+                  json={"name": sub, "mimeType": "application/vnd.google-apps.folder", "parents": [root_id]}).json()
+              dest = cr2["id"]
+          print(f"Subfolder: {sub} ({dest})")
+
+          for fpath in sorted(glob.glob("audio/*")):
+              fname = os.path.basename(fpath)
+              size = os.path.getsize(fpath)
+              if size < 5000:
+                  print(f"skip tiny: {fname} ({size}B)")
+                  continue
+              esc = fname.replace("\\","\\\\").replace("'","\\'")
+              dq = "name='%s' and '%s' in parents and trashed=false" % (esc, dest)
+              dup = requests.get("https://www.googleapis.com/drive/v3/files",
+                  params={"q": dq, "fields": "files(id,name)"}, headers=h).json()
+              if dup.get("files"):
+                  print(f"DUPLICATE: {fname}")
+                  continue
+              mime = mimetypes.guess_type(fname)[0] or "audio/mpeg"
+              print(f"Uploading: {fname} ({size/1024/1024:.1f} MB) mime={mime}")
+              init = requests.post(
+                  "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,name",
+                  headers={**h, "Content-Type": "application/json"},
+                  json={"name": fname, "parents": [dest]})
+              if init.status_code != 200:
+                  print(f"  init fail: {init.status_code} {init.text[:200]}")
+                  continue
+              with open(fpath, "rb") as f:
+                  up = requests.put(init.headers["Location"], data=f, headers={"Content-Type": mime})
+              if up.status_code == 200:
+                  print(f"  OK id={up.json().get('id')}")
+              else:
+                  print(f"  upload FAIL: {up.status_code} {up.text[:200]}")
+          PYEOF

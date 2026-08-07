@@ -1,0 +1,91 @@
+name: Science Clips (audio segments to repo)
+on:
+  workflow_dispatch:
+    inputs:
+      jobs:
+        description: 'JSON list: [{"id":"clipname","url":"...","start":"00:01:23","dur":"18"}]'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  clips:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Cloudflare WARP
+        uses: fscarmen/warp-on-actions@v1.1
+        with:
+          stack: dual
+
+      - name: Install yt-dlp + ffmpeg
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
+          pip install -U yt-dlp
+
+      - name: Download + trim clips
+        env:
+          JOBS_JSON: ${{ github.event.inputs.jobs }}
+        run: |
+          python3 << 'PYEOF'
+          import os, json, subprocess, glob, sys
+          jobs = json.loads(os.environ['JOBS_JSON'])
+          os.makedirs('sci_clips', exist_ok=True)
+          results = []
+          for j in jobs:
+              cid = j['id']; url = j['url']; start = j.get('start','0'); dur = str(j.get('dur','20'))
+              raw = f'/tmp/{cid}_raw.m4a'
+              ok = False
+              for client in ['default','tv','ios','android']:
+                  args = ['yt-dlp','--no-overwrites','-f','bestaudio/best','-o',raw]
+                  if client != 'default':
+                      args += ['--extractor-args', f'youtube:player_client={client}']
+                  args += [url]
+                  print(f'=== {cid} client={client} ===', flush=True)
+                  r = subprocess.run(args, capture_output=True, text=True)
+                  print(r.stdout[-1500:]); print(r.stderr[-1500:], file=sys.stderr)
+                  if os.path.exists(raw) and os.path.getsize(raw) > 5000:
+                      ok = True; break
+              if not ok:
+                  results.append({'id':cid,'ok':False,'reason':'download failed'}); continue
+              out = f'sci_clips/{cid}.wav'
+              # trim to segment, convert to mono 8000Hz for yemot
+              t = subprocess.run(['ffmpeg','-y','-ss',str(start),'-t',dur,'-i',raw,
+                  '-ac','1','-ar','8000','-sample_fmt','s16',out], capture_output=True, text=True)
+              if os.path.exists(out) and os.path.getsize(out) > 2000:
+                  results.append({'id':cid,'ok':True,'size':os.path.getsize(out)})
+              else:
+                  print(t.stderr[-1500:], file=sys.stderr)
+                  results.append({'id':cid,'ok':False,'reason':'trim failed'})
+              try: os.remove(raw)
+              except: pass
+          os.makedirs('docs', exist_ok=True)
+          with open('docs/sci_clips_result.json','w',encoding='utf-8') as f:
+              json.dump(results, f, ensure_ascii=False, indent=1)
+          print('RESULTS', json.dumps(results, ensure_ascii=False))
+          PYEOF
+          echo "=== files ==="
+          ls -lh sci_clips/ || echo none
+
+      - name: Commit clips
+        if: always()
+        run: |
+          set +e
+          git config user.name "SciClip Bot"
+          git config user.email "bot@sciclip.local"
+          git add sci_clips/*.wav docs/sci_clips_result.json
+          git status --short
+          if ! git diff --staged --quiet; then
+            git commit -m "Sci clips $(date +%H%M%S)"
+            for i in 1 2 3; do
+              git pull --rebase origin master
+              git push && break
+              sleep 2
+            done
+          else
+            echo "Nothing to commit"
+          fi

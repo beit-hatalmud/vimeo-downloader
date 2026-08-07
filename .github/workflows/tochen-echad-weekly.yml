@@ -1,0 +1,212 @@
+name: Tochen Echad Weekly (480p → Drive)
+on:
+  schedule:
+    # Motzei Shabbat 24:00 IST (=Sunday 21:00 UTC in summer, 22:00 in winter — using summer)
+    - cron: '0 21 * * 6'
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: 'Max videos to download this run'
+        default: '50'
+      sort_only:
+        description: 'Only sort previous weekly folder (no download)'
+        default: 'false'
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enable WARP (bypass geo)
+        uses: fscarmen/warp-on-actions@v1.1
+        with:
+          stack: dual
+      - name: Install tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
+          pip install -q --upgrade yt-dlp
+      - name: Run downloader + sorter
+        env:
+          CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+          LIMIT: ${{ inputs.limit || '50' }}
+          SORT_ONLY: ${{ inputs.sort_only || 'false' }}
+        run: |
+          python3 << 'PYEOF'
+          import urllib.request, urllib.parse, json, os, subprocess, sys, re, datetime
+
+          # SECURITY 2026-07-08: hardcoded creds removed; all from env/secrets.
+          if not (os.environ.get('CLIENT_ID') and os.environ.get('CLIENT_SECRET') and os.environ.get('REFRESH_TOKEN')):
+              sys.stderr.write('::error::Google OAuth env vars not set. Aborting.\n')
+              sys.exit(1)
+          data = urllib.parse.urlencode({
+              'client_id': os.environ['CLIENT_ID'],
+              'client_secret': os.environ['CLIENT_SECRET'],
+              'refresh_token': os.environ['REFRESH_TOKEN'],
+              'grant_type': 'refresh_token',
+          }).encode()
+          def refresh_token():
+              return json.load(urllib.request.urlopen(urllib.request.Request('https://oauth2.googleapis.com/token', data=data, method='POST')))['access_token']
+          token = refresh_token()
+
+          def api(url, method='GET', body=None, tok=None):
+              global token
+              t = tok or token
+              headers = {'Authorization': f'Bearer {t}'}
+              if body: headers['Content-Type'] = 'application/json'
+              req = urllib.request.Request(url, data=(json.dumps(body).encode() if body else None), headers=headers, method=method)
+              return json.load(urllib.request.urlopen(req, timeout=60))
+
+          # find/create root "תוכן אחד"
+          folder_name = 'תוכן אחד'
+          url = 'https://www.googleapis.com/drive/v3/files?q=' + urllib.parse.quote(f"name='{folder_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false") + '&fields=files(id,name)'
+          folders = api(url)['files']
+          if not folders:
+              root_id = api('https://www.googleapis.com/drive/v3/files', method='POST', body={'name': folder_name, 'mimeType': 'application/vnd.google-apps.folder'})['id']
+          else:
+              root_id = folders[0]['id']
+          print(f'Root: {root_id}')
+
+          # helper: ensure folder
+          def ensure_folder(parent_id, name):
+              n = name.replace("'", "\\'")
+              q = 'https://www.googleapis.com/drive/v3/files?q=' + urllib.parse.quote(f"name='{n}' and '{parent_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false") + '&fields=files(id,name)'
+              r = api(q)['files']
+              if r: return r[0]['id']
+              return api('https://www.googleapis.com/drive/v3/files', method='POST', body={'name': name, 'mimeType': 'application/vnd.google-apps.folder', 'parents': [parent_id]})['id']
+
+          # ===== STEP 1: sort previous weekly folders (>= 7 days old) =====
+          print('\n=== Step 1: sort aged weekly folders ===')
+          q_children = 'https://www.googleapis.com/drive/v3/files?q=' + urllib.parse.quote(f"'{root_id}' in parents and trashed=false") + '&fields=files(id,name,mimeType,createdTime)&pageSize=1000'
+          root_children = api(q_children)['files']
+          today = datetime.datetime.utcnow().date()
+          weekly_pat = re.compile(r'^חדשים-(\d{4})-(\d{2})-(\d{2})$')
+          aged_folders = []
+          for c in root_children:
+              if c['mimeType'] != 'application/vnd.google-apps.folder': continue
+              m = weekly_pat.match(c['name'])
+              if not m: continue
+              try:
+                  fd = datetime.date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+              except: continue
+              if (today - fd).days >= 7:
+                  aged_folders.append((c['id'], c['name'], fd))
+          print(f'Aged weekly folders to sort: {len(aged_folders)}')
+
+          moved_sorted = 0
+          for fid, name, fd in aged_folders:
+              qc = 'https://www.googleapis.com/drive/v3/files?q=' + urllib.parse.quote(f"'{fid}' in parents and trashed=false") + '&fields=files(id,name,mimeType)&pageSize=1000'
+              children = api(qc)['files']
+              for v in children:
+                  if v['mimeType'] == 'application/vnd.google-apps.folder': continue
+                  n = v['name']
+                  for ext in ['.mp4','.mkv','.webm']:
+                      if n.endswith(ext): n = n[:-len(ext)]
+                  s = n.split('｜')[0].strip() if '｜' in n else '_ללא_סדרה'
+                  if s == 'הוויכוח': s = 'הויכוח'
+                  target = ensure_folder(root_id, s)
+                  try:
+                      api(f'https://www.googleapis.com/drive/v3/files/{v["id"]}?addParents={target}&removeParents={fid}&fields=id', method='PATCH', body={})
+                      moved_sorted += 1
+                  except Exception as e:
+                      print(f'  ERR sort {v["name"][:40]}: {str(e)[:60]}')
+              # trash the now-empty weekly folder
+              try:
+                  api(f'https://www.googleapis.com/drive/v3/files/{fid}', method='PATCH', body={'trashed': True})
+                  print(f'  ✓ sorted+trashed {name}')
+              except: pass
+          print(f'Sorted: {moved_sorted}')
+
+          if os.environ.get('SORT_ONLY','false').lower() == 'true':
+              print('SORT_ONLY=true, skipping download')
+              sys.exit(0)
+
+          # ===== STEP 2: build set of existing YouTube IDs (across all subfolders) =====
+          print('\n=== Step 2: scan existing IDs ===')
+          existing_ids = set()
+          # scan root immediate children
+          root_children = api(q_children)['files']
+          subfolders = [c for c in root_children if c['mimeType'] == 'application/vnd.google-apps.folder']
+          for c in root_children:
+              if c['mimeType'] != 'application/vnd.google-apps.folder':
+                  m = re.search(r'\[([\w-]+)\]', c['name'])
+                  if m: existing_ids.add(m.group(1))
+          for sub in subfolders:
+              qs = 'https://www.googleapis.com/drive/v3/files?q=' + urllib.parse.quote(f"'{sub['id']}' in parents and trashed=false") + '&fields=files(name)&pageSize=1000'
+              for v in api(qs)['files']:
+                  m = re.search(r'\[([\w-]+)\]', v['name'])
+                  if m: existing_ids.add(m.group(1))
+          print(f'Existing IDs: {len(existing_ids)}')
+
+          # ===== STEP 3: fetch channel video IDs =====
+          print('\n=== Step 3: fetch channel list ===')
+          result = subprocess.run(['yt-dlp', '--flat-playlist', '--print', 'id', 'https://www.youtube.com/@תוכן_אחד/videos'],
+                                  capture_output=True, text=True, timeout=300)
+          all_ids = [x.strip() for x in result.stdout.split('\n') if x.strip()]
+          new_ids = [v for v in all_ids if v not in existing_ids]
+          limit = int(os.environ.get('LIMIT', 50))
+          new_ids = new_ids[:limit]
+          print(f'Channel total: {len(all_ids)}, new to fetch: {len(new_ids)}')
+
+          if not new_ids:
+              print('Nothing new to download.')
+              sys.exit(0)
+
+          # ===== STEP 4: create/use weekly folder =====
+          week_folder_name = f'חדשים-{today.isoformat()}'
+          week_folder_id = ensure_folder(root_id, week_folder_name)
+          print(f'\nWeekly folder: {week_folder_name} ({week_folder_id})')
+
+          os.makedirs('downloads', exist_ok=True)
+          uploaded = []
+          for i, vid in enumerate(new_ids):
+              if i > 0 and i % 10 == 0:
+                  token = refresh_token()
+              # 480p quality
+              try:
+                  r = subprocess.run(['yt-dlp', '-f', 'best[height<=480]/best', '-o', 'downloads/%(title)s [%(id)s].%(ext)s', f'https://www.youtube.com/watch?v={vid}'],
+                                     capture_output=True, text=True, timeout=900)
+                  if r.returncode != 0:
+                      print(f'DL FAIL {vid}: {r.stderr[-200:]}')
+                      continue
+              except Exception as e:
+                  print(f'DL ERR {vid}: {e}')
+                  continue
+              dl_files = [f for f in os.listdir('downloads') if f'[{vid}]' in f]
+              if not dl_files: continue
+              fn = dl_files[0]
+              path = os.path.join('downloads', fn)
+              meta = json.dumps({'name': fn, 'parents': [week_folder_id]}).encode()
+              boundary = '----TOCHEN'
+              with open(path, 'rb') as f:
+                  content = f.read()
+              body = (f'--{boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n'.encode()
+                      + meta + b'\r\n'
+                      + f'--{boundary}\r\nContent-Type: video/mp4\r\n\r\n'.encode()
+                      + content + b'\r\n'
+                      + f'--{boundary}--\r\n'.encode())
+              try:
+                  req = urllib.request.Request('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart',
+                      data=body, method='POST',
+                      headers={'Authorization': f'Bearer {token}', 'Content-Type': f'multipart/related; boundary={boundary}'})
+                  with urllib.request.urlopen(req, timeout=900) as r:
+                      _ = r.read()
+                  uploaded.append(fn)
+                  print(f'OK [{i+1}/{len(new_ids)}] {fn[:60]} ({len(content)//1024//1024}MB)', flush=True)
+              except Exception as e:
+                  print(f'UP ERR {fn}: {str(e)[:100]}', flush=True)
+              try: os.remove(path)
+              except: pass
+
+          # summary
+          with open('summary.txt', 'w', encoding='utf-8') as f:
+              f.write(f'Weekly folder: {week_folder_name}\n')
+              f.write(f'Downloaded/uploaded {len(uploaded)} new videos (480p)\n')
+              f.write(f'Sorted from prior weeks: {moved_sorted} files → podcast series folders\n\n')
+              for name in uploaded:
+                  f.write(f'{name}\n')
+          PYEOF
+          cat summary.txt || echo "(no summary)"

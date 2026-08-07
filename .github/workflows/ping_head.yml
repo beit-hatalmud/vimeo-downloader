@@ -1,0 +1,28 @@
+name: Ping HEAD deployment
+on:
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping HEAD
+        run: |
+          RESP=$(curl -sL -X POST "https://script.google.com/macros/s/AKfycbw0qZch6TRxgSI4Ng4ySbVFZwyyxo9srfRPbUbtCkQ/exec" \
+            -d "action=ping" -d "token=BHT_AGENT_2026" --max-time 60 -w "\n---HTTP:%{http_code}")
+          echo "RESP:"
+          echo "$RESP" | head -c 3000
+      - name: Post issue with response
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          RESP=$(curl -sL -X POST "https://script.google.com/macros/s/AKfycbw0qZch6TRxgSI4Ng4ySbVFZwyyxo9srfRPbUbtCkQ/exec" \
+            -d "action=ping" -d "token=BHT_AGENT_2026" --max-time 60 -w "\n---HTTP:%{http_code}")
+          BODY=$(echo "$RESP" | head -c 2000 | jq -R -s .)
+          curl -X POST "https://api.github.com/repos/yossi6742853/vimeo-downloader/issues" \
+            -H "Authorization: token $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github.v3+json" \
+            -d "{\"title\":\"HEAD ping response\",\"body\":$BODY}"

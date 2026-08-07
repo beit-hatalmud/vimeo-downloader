@@ -1,0 +1,242 @@
+name: Ayala - Auto fetch Israeli TV sites + inspiration
+
+on:
+  schedule:
+    # Every 2 hours
+    - cron: '23 */2 * * *'
+  workflow_dispatch:
+    inputs:
+      max_per_site:
+        description: 'Max videos per site per run'
+        required: false
+        default: '25'
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Cloudflare WARP
+        uses: fscarmen/warp-on-actions@v1.1
+        with: { stack: dual }
+
+      - name: Install tools
+        run: |
+          sudo apt-get install -y ffmpeg jq -qq
+          pip install -q -U yt-dlp requests beautifulsoup4
+
+      - name: Crawl + download
+        continue-on-error: true
+        env:
+          MAX: ${{ github.event.inputs.max_per_site || '25' }}
+        run: |
+          set +e  # never exit on single command failure
+          AYALA_PARENT='1URIGfrUFkphmiMifnPPljL1O_fbQrqJF'
+          CLIENT_ID='1072944905499-vm2v2i5dvn0a0d2o4ca36i1vge8cvbn0.apps.googleusercontent.com'
+          CLIENT_SECRET='v6V3fKV_zWU7iw1DrpO1rknX'
+          REFRESH_TOKEN='1//03doYP5sR8165CgYIARAAGAMSNwF-L9Irwt3jH4FHlYkKBcdcEr_DCirl7AWT7Uxf36-gUtqITAWqJx-vLRNyMcDprd91JtFuhLc'
+
+          ACCESS=$(curl -sS -X POST 'https://oauth2.googleapis.com/token' \
+            -d "client_id=$CLIENT_ID&client_secret=$CLIENT_SECRET&refresh_token=$REFRESH_TOKEN&grant_type=refresh_token" \
+            | python3 -c 'import json,sys;print(json.load(sys.stdin)["access_token"])')
+
+          get_or_create() {
+            local NAME="$1"
+            local PARENT="$2"
+            local FID=$(curl -sS -G -H "Authorization: Bearer $ACCESS" \
+              --data-urlencode "q=name='$NAME' and mimeType='application/vnd.google-apps.folder' and '$PARENT' in parents and trashed=false" \
+              --data-urlencode "fields=files(id)" \
+              "https://www.googleapis.com/drive/v3/files" \
+              | python3 -c 'import json,sys;d=json.load(sys.stdin);print(d["files"][0]["id"] if d.get("files") else "")')
+            if [ -z "$FID" ]; then
+              META=$(python3 -c "import json,os,sys;print(json.dumps({'name':sys.argv[1],'mimeType':'application/vnd.google-apps.folder','parents':[sys.argv[2]]}))" "$NAME" "$PARENT")
+              FID=$(curl -sS -X POST -H "Authorization: Bearer $ACCESS" -H "Content-Type: application/json; charset=utf-8" \
+                --data-binary "$META" \
+                "https://www.googleapis.com/drive/v3/files" \
+                | python3 -c 'import json,sys;print(json.load(sys.stdin)["id"])')
+            fi
+            echo "$FID"
+          }
+
+          # Get/create category roots
+          NEWS_ROOT=$(get_or_create "חדשות וערוצים" "$AYALA_PARENT")
+          REALITY_ROOT=$(get_or_create "ריאליטי" "$AYALA_PARENT")
+          DOCU_ROOT=$(get_or_create "דוקומנטרי" "$AYALA_PARENT")
+          SERIES_ROOT=$(get_or_create "סדרות ופרקים מלאים" "$AYALA_PARENT")
+          INSP_ROOT=$(get_or_create "השראה והעצמה" "$AYALA_PARENT")
+          echo "Categories ready"
+
+          # Site list: label|url|category
+          # Categories: news/reality/docu/series/insp
+          cat > /tmp/sites.txt <<'EOF'
+          קשת 12 יוטיוב|https://www.youtube.com/@Keshet12/videos|news
+          קשת 12 חדשות|https://www.youtube.com/@N12news/videos|news
+          רשת 13 יוטיוב|https://www.youtube.com/@reshettv/videos|news
+          חדשות 13|https://www.youtube.com/channel/UCvQmPpU20hw1Trss_CVwaew/videos|news
+          ערוץ 14|https://www.youtube.com/channel/UCKEImtWikw9usC1pl_9m1nQ/videos|news
+          ערוץ 14 @now14|https://www.youtube.com/@now14/videos|news
+          כאן 11|https://www.youtube.com/@kan11ofakim/videos|news
+          כאן חדשות|https://www.youtube.com/@kannews/videos|news
+          כאן דיגיטל|https://www.youtube.com/@kandigital/videos|news
+          וואלה|https://www.youtube.com/@walla/videos|news
+          הארץ|https://www.youtube.com/@haaretz/videos|news
+          ynet|https://www.youtube.com/@ynetnews/videos|news
+          ערוץ 7|https://www.youtube.com/@inn-il/videos|news
+          האח הגדול|https://www.youtube.com/results?search_query=האח+הגדול+פרק+מלא&sp=EgIIAw%253D%253D|reality
+          הישרדות|https://www.youtube.com/results?search_query=הישרדות+פרק+מלא&sp=EgIIAw%253D%253D|reality
+          הישרדות עונות מלאות|https://www.youtube.com/results?search_query=הישרדות+עונה+פרק&sp=EgIIAw%253D%253D|reality
+          מאסטרשף ישראל|https://www.youtube.com/results?search_query=מאסטר+שף+ישראל+פרק+מלא&sp=EgIIAw%253D%253D|reality
+          מאסטרשף כל העונות|https://www.youtube.com/results?search_query=מאסטרשף+עונה+פרק&sp=EgIIAw%253D%253D|reality
+          משחקי השף|https://www.youtube.com/results?search_query=משחקי+השף+פרק+מלא&sp=EgIIAw%253D%253D|reality
+          כוכבים במיליון|https://www.youtube.com/results?search_query=המרוץ+למיליון+פרק&sp=EgIIAw%253D%253D|reality
+          המרוץ למיליון|https://www.youtube.com/results?search_query=המרוץ+למיליון+ישראל&sp=EgIIAw%253D%253D|reality
+          כאן סקרנים|https://www.youtube.com/playlist?list=PLfoT5xxd1Ix4kR0rskyk9v-Ew1FEVSyW7|docu
+          הטרמפיסטים עונה 6|https://www.youtube.com/playlist?list=PLXv9BeKApRvxg39t05fbyejzjmaMnPAgm|docu
+          הטרמפיסטים עונה 7|https://www.youtube.com/playlist?list=PLXv9BeKApRvzyiPUEyyyTKG6hAk3SkyIm|docu
+          כאן דיגיטל - דוקו|https://www.youtube.com/channel/UCDJ6HHS5wkNaSREumdJRYhg/videos|docu
+          כאן מסבירים|https://www.youtube.com/results?search_query=כאן+מסבירים+פרק+מלא&sp=EgIIAw%253D%253D|docu
+          כאן מקשיבים|https://www.youtube.com/results?search_query=כאן+מקשיבים+פרק+מלא&sp=EgIIAw%253D%253D|docu
+          כאן מדברים|https://www.youtube.com/results?search_query=כאן+מדברים+פרק+מלא&sp=EgIIAw%253D%253D|docu
+          סליחה על השאלה|https://www.youtube.com/results?search_query=סליחה+על+השאלה+פרק+מלא&sp=EgIIAw%253D%253D|docu
+          כאן דוקו|https://www.youtube.com/results?search_query=כאן+דוקו+סרט+מלא&sp=EgIIAw%253D%253D|docu
+          כאן תרבות|https://www.youtube.com/results?search_query=כאן+תרבות+פרק+מלא&sp=EgIIAw%253D%253D|docu
+          הסיפורים שלנו|https://www.youtube.com/results?search_query=הסיפורים+שלנו+כאן+פרק+מלא&sp=EgIIAw%253D%253D|docu
+          מומחים כאן 11|https://www.youtube.com/results?search_query=מומחים+כאן+11+פרק+מלא&sp=EgIIAw%253D%253D|docu
+          אנשים שאני מכיר|https://www.youtube.com/results?search_query=אנשים+שאני+מכיר+כאן+פרק+מלא&sp=EgIIAw%253D%253D|docu
+          העברית החדשה|https://www.youtube.com/results?search_query=העברית+החדשה+כאן+פרק+מלא&sp=EgIIAw%253D%253D|docu
+          שורש פורה|https://www.youtube.com/results?search_query=שורש+פורה+כאן+פרק+מלא&sp=EgIIAw%253D%253D|docu
+          פרברים כאן|https://www.youtube.com/results?search_query=פרברים+כאן+פרק+מלא&sp=EgIIAw%253D%253D|docu
+          אגדה כאן|https://www.youtube.com/results?search_query=אגדה+כאן+11+פרק+מלא&sp=EgIIAw%253D%253D|docu
+          ירק על המסך|https://www.youtube.com/results?search_query=ירק+על+המסך+כאן+פרק&sp=EgIIAw%253D%253D|docu
+          שנה לזיכרון|https://www.youtube.com/results?search_query=שנה+לזיכרון+כאן+פרק&sp=EgIIAw%253D%253D|docu
+          דברי הימים|https://www.youtube.com/results?search_query=דברי+הימים+כאן+סדרה&sp=EgIIAw%253D%253D|docu
+          צפון דרום כאן|https://www.youtube.com/results?search_query=צפון+דרום+כאן+פרק+מלא&sp=EgIIAw%253D%253D|docu
+          עוצמה כאן|https://www.youtube.com/results?search_query=עוצמה+כאן+פרק&sp=EgIIAw%253D%253D|docu
+          כאן 11 דוקו רשמי|https://www.youtube.com/results?search_query=כאן+11+סרט+דוקומנטרי+מלא&sp=EgIIAw%253D%253D|docu
+          כאן ארץ|https://www.youtube.com/results?search_query=כאן+ארץ+פרק+מלא&sp=EgIIAw%253D%253D|docu
+          הפטריוטים ערוץ 14|https://www.youtube.com/results?search_query=הפטריוטים+פרק+מלא+ערוץ+14&sp=EgIIAw%253D%253D|reality
+          הכוכב הבא|https://www.youtube.com/results?search_query=הכוכב+הבא+פרק+מלא&sp=EgIIAw%253D%253D|reality
+          רוקדים עם כוכבים|https://www.youtube.com/results?search_query=רוקדים+עם+כוכבים+פרק+מלא&sp=EgIIAw%253D%253D|reality
+          הקרב|https://www.youtube.com/results?search_query=הקרב+פרק+מלא&sp=EgIIAw%253D%253D|reality
+          מאסטרמיינד|https://www.youtube.com/results?search_query=מאסטרמיינד+ישראל+פרק+מלא&sp=EgIIAw%253D%253D|reality
+          הישראלים|https://www.youtube.com/results?search_query=הישראלים+פרק+מלא&sp=EgIIAw%253D%253D|reality
+          סרטים דוקומנטריים|https://www.youtube.com/results?search_query=סרט+דוקומנטרי+ישראלי+מלא&sp=EgIIAw%253D%253D|docu
+          חוצה ישראל|https://www.youtube.com/results?search_query=חוצה+ישראל+יאיר+לפיד+פרק&sp=EgIIAw%253D%253D|docu
+          זרים בארץ|https://www.youtube.com/results?search_query=זרים+בארץ+פרק&sp=EgIIAw%253D%253D|docu
+          תיעוד חברתי|https://www.youtube.com/results?search_query=סרט+תיעודי+חברתי+ישראל&sp=EgIIAw%253D%253D|docu
+          תיעוד היסטורי ישראל|https://www.youtube.com/results?search_query=סרט+דוקומנטרי+היסטוריה+ישראל&sp=EgIIAw%253D%253D|docu
+          סדרות ישראליות|https://www.youtube.com/results?search_query=סדרה+ישראלית+פרק+מלא&sp=EgIIAw%253D%253D|series
+          חיים יקרים|https://www.youtube.com/results?search_query=חיים+יקרים+פרק+מלא&sp=EgIIAw%253D%253D|series
+          שנות ה-80 בארץ|https://www.youtube.com/results?search_query=סדרה+ישראלית+אהבה+דרמה&sp=EgIIAw%253D%253D|series
+          TEDxTelAviv|https://www.youtube.com/@TEDxTelAviv/videos|insp
+          TEDxJerusalem|https://www.youtube.com/@TEDxJerusalem/videos|insp
+          סיפורי השראה|https://www.youtube.com/results?search_query=סיפורי+השראה+בעברית&sp=EgIIAw%253D%253D|insp
+          סיפורי גבורה|https://www.youtube.com/results?search_query=סיפורי+גבורה+ישראליים&sp=EgIIAw%253D%253D|insp
+          ראיונות השראה|https://www.youtube.com/results?search_query=ראיון+ישראלי+השראה&sp=EgIIAw%253D%253D|insp
+          הצלחות בעולם|https://www.youtube.com/results?search_query=סיפורי+הצלחה+בעברית&sp=EgIIAw%253D%253D|insp
+          חוויות חיים|https://www.youtube.com/results?search_query=חוויות+חיים+בעברית+מעוררות+השראה&sp=EgIIAw%253D%253D|insp
+          # Direct channel sites (full episodes - not just YouTube)
+          מאקו 12 VOD|https://www.mako.co.il/mako-vod-keshet|news
+          מאקו 12 דרמה|https://www.mako.co.il/mako-vod-drama|series
+          מאקו 12 ריאליטי|https://www.mako.co.il/mako-vod-reality|reality
+          מאקו 12 דוקו|https://www.mako.co.il/mako-vod-docu|docu
+          רשת 13 vod|https://13tv.co.il/all-shows/|series
+          רשת 13 חדשות|https://13news.co.il/|news
+          ערוץ 14 vod|https://www.now14.co.il/programs|series
+          ערוץ 14 חדשות|https://www.now14.co.il/category/news|news
+          כאן 11 דוקו|https://www.kan.org.il/lobby/docu/|docu
+          כאן 11 דרמה|https://www.kan.org.il/lobby/drama/|series
+          כאן 11 חדשות|https://www.kan.org.il/lobby/news/|news
+          וואלה וידאו|https://video.walla.co.il/|news
+          ynet וידאו|https://www.ynet.co.il/news/category/184|news
+          EOF
+
+          # Use played history file to avoid re-downloading same video
+          touch ayala-feeds-state.txt
+
+          while IFS='|' read -r LABEL URL CAT; do
+            [ -z "$LABEL" ] && continue
+            case "$CAT" in
+              news) ROOT="$NEWS_ROOT" ;;
+              reality) ROOT="$REALITY_ROOT" ;;
+              docu) ROOT="$DOCU_ROOT" ;;
+              series) ROOT="$SERIES_ROOT" ;;
+              insp) ROOT="$INSP_ROOT" ;;
+              *) ROOT="$NEWS_ROOT" ;;
+            esac
+            # No date filter - newest-first ordering does the work (yt-dlp returns latest first)
+            # Bound at 2018-01-01 to avoid ancient content
+            DATEFLAG="--dateafter 20180101"
+            FOLDER_ID=$(get_or_create "$LABEL" "$ROOT")
+            echo ""
+            echo "═══ $LABEL → $FOLDER_ID ═══"
+
+            # Use yt-dlp flat-playlist to get up to MAX video URLs - newest first
+            timeout 90 yt-dlp --flat-playlist --no-warnings --quiet \
+              --playlist-end "$MAX" \
+              --print "%(url)s|%(title)s" "$URL" > /tmp/urls.txt 2>/dev/null || echo "  flat-list failed"
+
+            if [ ! -s /tmp/urls.txt ]; then echo "  no urls"; continue; fi
+
+            while IFS='|' read -r VURL VTITLE; do
+              [ -z "$VURL" ] && continue
+              # Dedup
+              VKEY=$(echo "$VURL" | md5sum | cut -d' ' -f1)
+              if grep -q "$VKEY" ayala-feeds-state.txt; then continue; fi
+
+              echo "  → $VTITLE"
+              rm -f videos/*.mp4 2>/dev/null
+              mkdir -p videos
+              timeout 900 yt-dlp --no-warnings --no-playlist \
+                --merge-output-format mp4 -f "bv*[height<=720]+ba/b/best[height<=720]" \
+                --max-filesize 2G \
+                $DATEFLAG \
+                --write-sub --write-auto-sub --sub-lang "he,iw" --embed-subs --sub-format vtt \
+                -o "videos/%(title).100s.%(ext)s" "$VURL" 2>&1 | tail -2 || true
+
+              FILE=$(ls -S videos/ 2>/dev/null | head -1)
+              [ -z "$FILE" ] && continue
+              SIZE=$(stat -c%s "videos/$FILE" 2>/dev/null || echo 0)
+              MB=$((SIZE/1048576))
+              if [ "$MB" -lt 1 ]; then echo "    too small (${MB}MB)"; rm -f "videos/$FILE"; continue; fi
+
+              BOUNDARY="b$RANDOM$RANDOM"
+              META=$(python3 -c "import json,sys;print(json.dumps({'name':sys.argv[1],'parents':[sys.argv[2]]}))" "$FILE" "$FOLDER_ID")
+              {
+                printf -- "--%s\r\n" "$BOUNDARY"
+                printf "Content-Type: application/json; charset=UTF-8\r\n\r\n"
+                printf "%s\r\n" "$META"
+                printf -- "--%s\r\n" "$BOUNDARY"
+                printf "Content-Type: video/mp4\r\n\r\n"
+                cat "videos/$FILE"
+                printf "\r\n--%s--\r\n" "$BOUNDARY"
+              } > /tmp/body.tmp
+              HTTP=$(curl -sS -o /tmp/up.json -w "%{http_code}" -X POST \
+                -H "Authorization: Bearer $ACCESS" \
+                -H "Content-Type: multipart/related; boundary=$BOUNDARY" \
+                --data-binary @/tmp/body.tmp \
+                "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart")
+              if [ "$HTTP" = "200" ]; then
+                echo "    UPLOADED ${MB}MB"
+                echo "$VKEY" >> ayala-feeds-state.txt
+              else
+                echo "    UPLOAD-FAIL HTTP=$HTTP"
+              fi
+              rm -f "videos/$FILE" /tmp/body.tmp
+            done < /tmp/urls.txt
+          done < /tmp/sites.txt
+
+      - name: Persist state
+        if: always()
+        run: |
+          git config user.email "actions@github.com"
+          git config user.name "github-actions"
+          git pull --rebase origin master || true
+          git add ayala-feeds-state.txt
+          git diff --cached --quiet || git commit -m "ayala-feeds: update download history"
+          git push origin master || true

@@ -1,0 +1,159 @@
+name: Batch Audio Search to Drive (MP3)
+on:
+  workflow_dispatch:
+    inputs:
+      topics_file:
+        description: 'Path to topics file in repo (one query per line)'
+        required: true
+        default: 'batch_topics.txt'
+      results_per_topic:
+        description: 'How many videos to download per topic'
+        required: false
+        default: '3'
+      drive_folder_name:
+        description: 'Drive folder name for results'
+        required: false
+        default: 'סרטונים לפי נושאים'
+
+permissions:
+  contents: write
+
+jobs:
+  batch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Cloudflare WARP
+        uses: fscarmen/warp-on-actions@v1.1
+        with:
+          stack: dual
+
+      - name: Install tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
+          pip install -U yt-dlp curl_cffi
+
+      - name: Download per topic
+        env:
+          TOPICS_FILE: ${{ github.event.inputs.topics_file }}
+          N: ${{ github.event.inputs.results_per_topic }}
+        run: |
+          mkdir -p videos
+          if [ ! -f "$TOPICS_FILE" ]; then
+            echo "Topics file not found: $TOPICS_FILE"
+            exit 1
+          fi
+          echo "IP after WARP:"; curl -s ifconfig.me; echo
+
+          LINE_NUM=0
+          while IFS= read -r topic || [ -n "$topic" ]; do
+            LINE_NUM=$((LINE_NUM+1))
+            # trim whitespace and skip empty/comment lines
+            topic=$(echo "$topic" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+            [ -z "$topic" ] && continue
+            case "$topic" in \#*) continue ;; esac
+
+            echo "=== Topic #$LINE_NUM: searching for $N results ==="
+            SUBDIR="videos/topic_${LINE_NUM}"
+            mkdir -p "$SUBDIR"
+
+            # Try default clients first, then fallbacks
+            yt-dlp "ytsearch${N}:${topic}" \
+              --no-overwrites --merge-output-format mp4 \
+              -f "bv*+ba/b" \
+              -o "${SUBDIR}/%(title)s.%(ext)s" 2>&1 | tail -40 \
+              && [ -n "$(ls -A $SUBDIR/ 2>/dev/null)" ] && echo "OK topic $LINE_NUM" && continue
+
+            for CLIENT in tv ios android; do
+              echo "--- topic $LINE_NUM fallback client=$CLIENT ---"
+              if [ "$CLIENT" = "android" ]; then
+                yt-dlp "ytsearch${N}:${topic}" \
+                  --extractor-args "youtube:player_client=android" \
+                  --no-overwrites \
+                  -o "${SUBDIR}/%(title)s.%(ext)s" 2>&1 | tail -20 \
+                  && [ -n "$(ls -A $SUBDIR/ 2>/dev/null)" ] && break
+              else
+                yt-dlp "ytsearch${N}:${topic}" \
+                  --extractor-args "youtube:player_client=$CLIENT" \
+                  -x --audio-format mp3 --audio-quality 192K --no-overwrites \
+                  -o "${SUBDIR}/%(title)s.%(ext)s" 2>&1 | tail -20 \
+                  && [ -n "$(ls -A $SUBDIR/ 2>/dev/null)" ] && break
+              fi
+            done
+
+            echo "Topic $LINE_NUM files: $(ls -1 $SUBDIR/ 2>/dev/null | wc -l)"
+          done < "$TOPICS_FILE"
+
+          echo "=== Total files ==="
+          find videos/ -type f | wc -l
+          find videos/ -type f -exec ls -lh {} \;
+
+      - name: Upload to Google Drive
+        env:
+          CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+          DRIVE_FOLDER: ${{ github.event.inputs.drive_folder_name }}
+        run: |
+          python3 << 'PYEOF'
+          import requests, os, glob, mimetypes, json
+
+          token = requests.post("https://oauth2.googleapis.com/token", data={
+              "client_id": os.environ["CLIENT_ID"],
+              "client_secret": os.environ["CLIENT_SECRET"],
+              "refresh_token": os.environ["REFRESH_TOKEN"],
+              "grant_type": "refresh_token"
+          }).json()["access_token"]
+          H = {"Authorization": f"Bearer {token}"}
+          folder_name = os.environ["DRIVE_FOLDER"]
+
+          # Find or create parent folder
+          r = requests.get("https://www.googleapis.com/drive/v3/files",
+              params={"q": f"name='{folder_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false",
+                      "fields": "files(id)"}, headers=H)
+          files = r.json().get("files", [])
+          if files:
+              parent_id = files[0]["id"]
+          else:
+              parent_id = requests.post("https://www.googleapis.com/drive/v3/files",
+                  headers={**H, "Content-Type": "application/json"},
+                  json={"name": folder_name, "mimeType": "application/vnd.google-apps.folder"}).json()["id"]
+          print(f"Parent folder: {folder_name} ({parent_id})")
+
+          total = 0
+          for topic_dir in sorted(glob.glob("videos/topic_*")):
+              topic_num = os.path.basename(topic_dir).replace("topic_", "")
+              # subfolder per topic
+              sub = requests.post("https://www.googleapis.com/drive/v3/files",
+                  headers={**H, "Content-Type": "application/json"},
+                  json={"name": f"נושא {topic_num}", "mimeType": "application/vnd.google-apps.folder",
+                        "parents": [parent_id]}).json()
+              sub_id = sub["id"]
+              print(f"Topic {topic_num} folder: {sub_id}")
+              for fpath in glob.glob(f"{topic_dir}/*"):
+                  if not os.path.isfile(fpath): continue
+                  size = os.path.getsize(fpath)
+                  if size < 1000:
+                      print(f"  skip tiny: {os.path.basename(fpath)}")
+                      continue
+                  fname = os.path.basename(fpath)
+                  mime = mimetypes.guess_type(fname)[0] or "application/octet-stream"
+                  init = requests.post(
+                      "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable",
+                      headers={**H, "Content-Type": "application/json"},
+                      json={"name": fname, "parents": [sub_id]})
+                  if init.status_code != 200:
+                      print(f"  init fail {fname}: {init.status_code}"); continue
+                  with open(fpath, "rb") as f:
+                      up = requests.put(init.headers["Location"], data=f,
+                                        headers={"Content-Type": mime})
+                  if up.status_code == 200:
+                      print(f"  uploaded: {fname} ({size/1024/1024:.1f}MB)")
+                      total += 1
+                  else:
+                      print(f"  upload fail {fname}: {up.status_code}")
+          print(f"=== TOTAL UPLOADED: {total} ===")
+          PYEOF

@@ -1,0 +1,132 @@
+name: Download Tochen Echad Channel Weekly
+on:
+  schedule:
+    - cron: '0 5 * * 0'
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: 'Max videos this run'
+        default: '30'
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enable WARP
+        uses: fscarmen/warp-on-actions@v1.1
+        with:
+          stack: dual
+      - name: Install ffmpeg + yt-dlp
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
+          pip install -q --upgrade yt-dlp
+
+      - name: Download + upload streaming
+        env:
+          REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+          LIMIT: ${{ inputs.limit || '30' }}
+        run: |
+          python3 << 'PYEOF'
+          import urllib.request, urllib.parse, json, os, subprocess, sys
+
+          data = urllib.parse.urlencode({
+              'client_id': '1072944905499-vm2v2i5dvn0a0d2o4ca36i1vge8cvbn0.apps.googleusercontent.com',
+              'client_secret': 'v6V3fKV_zWU7iw1DrpO1rknX',
+              'refresh_token': os.environ['REFRESH_TOKEN'],
+              'grant_type': 'refresh_token',
+          }).encode()
+          token = json.load(urllib.request.urlopen(urllib.request.Request('https://oauth2.googleapis.com/token', data=data, method='POST')))['access_token']
+
+          # Find/create folder
+          folder_name = 'תוכן אחד'
+          url = 'https://www.googleapis.com/drive/v3/files?q=' + urllib.parse.quote(f"name='{folder_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false") + '&fields=files(id,name)'
+          req = urllib.request.Request(url, headers={'Authorization': f'Bearer {token}'})
+          folders = json.load(urllib.request.urlopen(req, timeout=30))['files']
+          if not folders:
+              cr_body = json.dumps({'name': folder_name, 'mimeType': 'application/vnd.google-apps.folder'}).encode()
+              req2 = urllib.request.Request('https://www.googleapis.com/drive/v3/files', data=cr_body, headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}, method='POST')
+              folder_id = json.load(urllib.request.urlopen(req2, timeout=30))['id']
+          else:
+              folder_id = folders[0]['id']
+
+          # Get existing video IDs from Drive
+          files_url = 'https://www.googleapis.com/drive/v3/files?q=' + urllib.parse.quote(f"'{folder_id}' in parents and trashed=false") + '&fields=files(name)&pageSize=1000'
+          req3 = urllib.request.Request(files_url, headers={'Authorization': f'Bearer {token}'})
+          existing_files = json.load(urllib.request.urlopen(req3, timeout=30))['files']
+          existing_ids = set()
+          for f in existing_files:
+              name = f['name']
+              if '[' in name and ']' in name:
+                  vid = name.split('[')[-1].split(']')[0]
+                  existing_ids.add(vid)
+          print(f'Folder: {folder_id}, existing: {len(existing_ids)}')
+
+          # Get channel video list
+          result = subprocess.run(['yt-dlp', '--flat-playlist', '--print', 'id', 'https://www.youtube.com/@תוכן_אחד/videos'], capture_output=True, text=True, timeout=300)
+          all_ids = [x.strip() for x in result.stdout.split('\n') if x.strip()]
+          print(f'Channel: {len(all_ids)} total')
+
+          new_ids = [v for v in all_ids if v not in existing_ids]
+          limit = int(os.environ.get('LIMIT', 30))
+          new_ids = new_ids[:limit]
+          print(f'To download (limited to {limit}): {len(new_ids)}')
+
+          uploaded = []
+          os.makedirs('downloads', exist_ok=True)
+
+          for i, vid in enumerate(new_ids):
+              # Refresh token periodically
+              if i > 0 and i % 10 == 0:
+                  token = json.load(urllib.request.urlopen(urllib.request.Request('https://oauth2.googleapis.com/token', data=data, method='POST')))['access_token']
+
+              # Download single video
+              try:
+                  r = subprocess.run(['yt-dlp', '-f', 'best[height<=720]/best', '-o', 'downloads/%(title)s [%(id)s].%(ext)s', f'https://www.youtube.com/watch?v={vid}'], capture_output=True, text=True, timeout=600)
+                  if r.returncode != 0:
+                      print(f'DL FAIL {vid}: {r.stderr[:200]}')
+                      continue
+              except Exception as e:
+                  print(f'DL ERR {vid}: {e}')
+                  continue
+
+              # Find the downloaded file
+              dl_files = [f for f in os.listdir('downloads') if f'[{vid}]' in f]
+              if not dl_files:
+                  print(f'No file for {vid}')
+                  continue
+              fn = dl_files[0]
+              path = os.path.join('downloads', fn)
+
+              # Upload to Drive
+              meta = json.dumps({'name': fn, 'parents': [folder_id]}).encode()
+              boundary = '----TOCHEN'
+              with open(path, 'rb') as f:
+                  content = f.read()
+              body = (f'--{boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n'.encode()
+                      + meta + b'\r\n'
+                      + f'--{boundary}\r\nContent-Type: video/mp4\r\n\r\n'.encode()
+                      + content + b'\r\n'
+                      + f'--{boundary}--\r\n'.encode())
+              try:
+                  req = urllib.request.Request('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart',
+                      data=body, method='POST',
+                      headers={'Authorization': f'Bearer {token}', 'Content-Type': f'multipart/related; boundary={boundary}'})
+                  with urllib.request.urlopen(req, timeout=600) as r:
+                      _ = r.read()
+                  uploaded.append(fn)
+                  print(f'OK [{i+1}/{len(new_ids)}] {fn[:50]} ({len(content)//1024//1024}MB)', flush=True)
+              except Exception as e:
+                  print(f'UP ERR {fn}: {str(e)[:80]}', flush=True)
+              # delete local to save disk
+              try: os.remove(path)
+              except: pass
+
+          with open('summary.txt', 'w', encoding='utf-8') as f:
+              f.write(f'Uploaded {len(uploaded)} new videos to תוכן אחד\n\n')
+              for name in uploaded:
+                  f.write(f'{name}\n')
+          PYEOF
+          cat summary.txt

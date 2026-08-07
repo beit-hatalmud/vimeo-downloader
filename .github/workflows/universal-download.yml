@@ -1,0 +1,122 @@
+name: Universal Download - Any URL → Drive
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'Any URL - yt-dlp supports 1000+ sites (YouTube, Vimeo, Twitter, TikTok, direct files, etc.)'
+        required: true
+      filename:
+        description: 'Output filename (optional - auto from page title if empty)'
+        required: false
+      drive_folder:
+        description: 'Drive folder name'
+        required: false
+        default: 'universal_downloads'
+      format:
+        description: 'yt-dlp format (best/bestaudio/worst etc.)'
+        required: false
+        default: 'best'
+
+permissions:
+  contents: read
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Install yt-dlp + ffmpeg
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
+          pip install -U yt-dlp
+          yt-dlp --version
+
+      - name: Download from URL (yt-dlp → wget fallback)
+        id: dl
+        env:
+          URL: ${{ github.event.inputs.url }}
+          FMT: ${{ github.event.inputs.format }}
+          NAME: ${{ github.event.inputs.filename }}
+        run: |
+          mkdir -p out && cd out
+          if [ -n "$NAME" ]; then
+            TEMPLATE="$NAME.%(ext)s"
+          else
+            TEMPLATE="%(title)s.%(ext)s"
+          fi
+          set +e
+          yt-dlp -f "$FMT" --no-warnings --no-playlist --restrict-filenames \
+            -o "$TEMPLATE" "$URL"
+          RC=$?
+          set -e
+          if [ $RC -ne 0 ] || [ -z "$(ls 2>/dev/null)" ]; then
+            echo "yt-dlp failed (rc=$RC) - trying wget"
+            FN="${NAME:-$(basename "${URL%%\?*}")}"
+            [ -z "$FN" ] && FN="download_$(date +%s)"
+            wget -q --user-agent="Mozilla/5.0" -O "$FN" "$URL"
+          fi
+          FILE=$(ls -S | head -1)
+          echo "Downloaded: $FILE ($(stat -c%s "$FILE") bytes)"
+          echo "file=$FILE" >> $GITHUB_OUTPUT
+
+      - name: Upload to Drive
+        env:
+          FILE: out/${{ steps.dl.outputs.file }}
+          FOLDER: ${{ github.event.inputs.drive_folder }}
+          CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+        run: |
+          # SECURITY 2026-07-08: hardcoded fallback credentials removed.
+          # All values MUST come from repo secrets (GOOGLE_CLIENT_ID / SECRET / REFRESH_TOKEN).
+          if [ -z "$CLIENT_ID" ] || [ -z "$CLIENT_SECRET" ] || [ -z "$REFRESH_TOKEN" ]; then
+            echo "::error::Google OAuth secrets not set on this repo. Aborting."; exit 1
+          fi
+
+          ACCESS=$(curl -sS -X POST 'https://oauth2.googleapis.com/token' \
+            -d "client_id=$CLIENT_ID&client_secret=$CLIENT_SECRET&refresh_token=$REFRESH_TOKEN&grant_type=refresh_token" \
+            | python3 -c 'import json,sys;print(json.load(sys.stdin)["access_token"])')
+
+          # Find or create folder
+          FOLDER_ID=$(curl -sS -H "Authorization: Bearer $ACCESS" \
+            "https://www.googleapis.com/drive/v3/files?q=name='$FOLDER'+and+mimeType='application/vnd.google-apps.folder'+and+trashed=false&fields=files(id)" \
+            | python3 -c 'import json,sys;d=json.load(sys.stdin);print(d["files"][0]["id"] if d.get("files") else "")')
+          if [ -z "$FOLDER_ID" ]; then
+            FOLDER_ID=$(curl -sS -X POST -H "Authorization: Bearer $ACCESS" -H "Content-Type: application/json" \
+              -d "{\"name\":\"$FOLDER\",\"mimeType\":\"application/vnd.google-apps.folder\"}" \
+              "https://www.googleapis.com/drive/v3/files" \
+              | python3 -c 'import json,sys;print(json.load(sys.stdin)["id"])')
+          fi
+          echo "Drive folder ID: $FOLDER_ID"
+
+          # Multipart upload
+          NAME=$(basename "$FILE")
+          MIME=$(file -b --mime-type "$FILE")
+          BOUNDARY="boundary_$(date +%s%N)"
+          {
+            echo "--$BOUNDARY"
+            echo "Content-Type: application/json; charset=UTF-8"
+            echo
+            python3 -c "import json;print(json.dumps({'name':'$NAME','parents':['$FOLDER_ID']}))"
+            echo
+            echo "--$BOUNDARY"
+            echo "Content-Type: $MIME"
+            echo
+            cat "$FILE"
+            echo
+            echo "--$BOUNDARY--"
+          } > /tmp/body
+          RESP=$(curl -sS -X POST \
+            -H "Authorization: Bearer $ACCESS" \
+            -H "Content-Type: multipart/related; boundary=$BOUNDARY" \
+            --data-binary @/tmp/body \
+            "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,size")
+          echo "Upload response: $RESP"
+          FILE_ID=$(echo "$RESP" | python3 -c 'import json,sys;print(json.load(sys.stdin)["id"])')
+          echo ""
+          echo "═══════════════════════════════════════════════════════"
+          echo "✓ Saved to Drive (private)"
+          echo "   View: https://drive.google.com/file/d/$FILE_ID/view"
+          echo "═══════════════════════════════════════════════════════"

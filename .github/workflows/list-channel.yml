@@ -1,0 +1,36 @@
+name: List Channel
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: 'UC channel ID, @handle, or full URL'
+        required: true
+jobs:
+  list:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Install
+        run: pip install -U yt-dlp
+      - name: List all videos
+        run: |
+          INPUT='${{ github.event.inputs.channel }}'
+          if [[ "$INPUT" == http* ]]; then
+            URL="$INPUT"
+          elif [[ "$INPUT" == @* ]]; then
+            URL="https://www.youtube.com/${INPUT}/videos"
+          elif [[ "$INPUT" == UC* ]]; then
+            URL="https://www.youtube.com/channel/${INPUT}/videos"
+          else
+            URL="https://www.youtube.com/@${INPUT}/videos"
+          fi
+          echo "Resolved URL: $URL"
+          yt-dlp --flat-playlist --print "%(id)s|%(title)s" "$URL" > video_list.txt 2>errors.txt || true
+          echo "Total: $(wc -l < video_list.txt) videos"
+          echo "=== Errors ==="
+          cat errors.txt
+      - name: Upload list
+        uses: actions/upload-artifact@v4
+        with:
+          name: video-list
+          path: video_list.txt

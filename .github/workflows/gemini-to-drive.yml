@@ -1,0 +1,129 @@
+name: Gemini to Drive
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'Gemini share URL'
+        required: true
+      download_to_pc:
+        description: 'true/false - also expose for PC download'
+        required: false
+        default: 'false'
+
+permissions:
+  contents: write
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          pip install -U playwright requests
+          playwright install chromium
+          playwright install-deps chromium
+
+      - name: Extract video from Gemini share
+        run: |
+          mkdir -p videos
+          URL="${{ github.event.inputs.url }}"
+          echo "Extracting from: $URL"
+          python3 gemini_extract.py "$URL" 2>&1 || true
+          echo "=== Files ==="
+          ls -lh videos/ || echo "No files"
+
+      - name: Upload to Google Drive
+        if: always()
+        env:
+          CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+          DOWNLOAD_TO_PC: ${{ github.event.inputs.download_to_pc }}
+          SOURCE_URL: ${{ github.event.inputs.url }}
+        run: |
+          python3 << 'PYEOF'
+          import requests, os, glob, json, mimetypes, time
+          token = requests.post('https://oauth2.googleapis.com/token', data={
+              'client_id': os.environ['CLIENT_ID'], 'client_secret': os.environ['CLIENT_SECRET'],
+              'refresh_token': os.environ['REFRESH_TOKEN'], 'grant_type': 'refresh_token'
+          }).json()['access_token']
+          headers = {'Authorization': f'Bearer {token}'}
+          r = requests.get('https://www.googleapis.com/drive/v3/files',
+              params={'q': "name='סרטונים שהורדו' and mimeType='application/vnd.google-apps.folder' and trashed=false", 'fields': 'files(id)'},
+              headers=headers)
+          files = r.json().get('files', [])
+          fid = files[0]['id'] if files else requests.post('https://www.googleapis.com/drive/v3/files',
+              headers={**headers, 'Content-Type': 'application/json'},
+              json={'name': 'סרטונים שהורדו', 'mimeType': 'application/vnd.google-apps.folder'}).json()['id']
+
+          to_pc = os.environ.get('DOWNLOAD_TO_PC', 'false').lower() == 'true'
+          source_url = os.environ.get('SOURCE_URL', '')
+          uploaded = []
+
+          # Rename based on source URL last segment
+          import re
+          slug = re.search(r'/share/([^/?#]+)', source_url)
+          slug = slug.group(1)[:32] if slug else 'gemini'
+
+          for fp in glob.glob('videos/*'):
+              sz = os.path.getsize(fp)
+              if sz < 1000: continue
+              ext = os.path.splitext(fp)[1] or '.mp4'
+              fn = f'gemini_{slug}{ext}'
+              print(f'Uploading: {fn} ({sz/1024/1024:.1f} MB)')
+              mime = mimetypes.guess_type(fn)[0] or 'video/mp4'
+              r = requests.post('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,name,size,mimeType',
+                  headers={**headers, 'Content-Type': 'application/json'}, json={'name': fn, 'parents': [fid]})
+              if r.status_code != 200:
+                  print(f'Init failed: {r.status_code}'); continue
+              with open(fp, 'rb') as f:
+                  r2 = requests.put(r.headers['Location'], data=f, headers={'Content-Type': mime})
+              if r2.status_code != 200:
+                  print(f'Upload FAILED: {r2.status_code}'); continue
+              info = r2.json()
+              file_id = info.get('id')
+              print(f'SUCCESS: id={file_id}')
+              if to_pc and file_id:
+                  pr = requests.post(f'https://www.googleapis.com/drive/v3/files/{file_id}/permissions',
+                      headers={**headers, 'Content-Type': 'application/json'},
+                      json={'role': 'reader', 'type': 'anyone'})
+                  print(f'Permission: {pr.status_code}')
+              uploaded.append({
+                  'id': file_id, 'name': fn, 'size': sz, 'mimeType': mime,
+                  'url': source_url, 'downloadToPc': to_pc, 'time': int(time.time()*1000)
+              })
+
+          os.makedirs('docs', exist_ok=True)
+          path = 'docs/last_downloads.json'
+          history = []
+          if os.path.exists(path):
+              try:
+                  with open(path, encoding='utf-8') as f: history = json.load(f)
+              except: history = []
+          history = uploaded + (history if isinstance(history, list) else [])
+          history = history[:50]
+          with open(path, 'w', encoding='utf-8') as f:
+              json.dump(history, f, ensure_ascii=False, indent=1)
+          print(f'Recorded {len(uploaded)} downloads')
+          PYEOF
+
+      - name: Commit record
+        if: always()
+        run: |
+          set +e
+          git config user.name "VideoGrab Bot"
+          git config user.email "bot@videograb.local"
+          git add docs/last_downloads.json
+          if ! git diff --staged --quiet; then
+            git commit -m "Record Gemini download $(date +%H%M%S)"
+            for i in 1 2 3; do
+              git pull --rebase origin master
+              git push && break
+              sleep 2
+            done
+          else
+            echo "Nothing to commit"
+          fi

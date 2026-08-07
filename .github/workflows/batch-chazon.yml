@@ -1,0 +1,139 @@
+name: Batch Chazon Ish
+on:
+  workflow_dispatch:
+    inputs:
+      start:
+        description: 'Start index (0-based)'
+        required: true
+        default: '0'
+      count:
+        description: 'How many to download'
+        required: true
+        default: '5'
+
+permissions:
+  contents: read
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
+          pip install -U yt-dlp requests
+
+      - name: Download batch
+        env:
+          CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+        run: |
+          python3 << 'PYEOF'
+          import requests, os, subprocess, json
+
+          START = int("${{ github.event.inputs.start }}")
+          COUNT = int("${{ github.event.inputs.count }}")
+
+          # Read URLs
+          with open("blocked_urls.txt") as f:
+              urls = [l.strip() for l in f if l.strip()]
+          batch = urls[START:START+COUNT]
+          print(f"Batch: {START} to {START+len(batch)-1} of {len(urls)}")
+
+          # Get Drive token
+          token = requests.post("https://oauth2.googleapis.com/token", data={
+              "client_id": os.environ["CLIENT_ID"],
+              "client_secret": os.environ["CLIENT_SECRET"],
+              "refresh_token": os.environ["REFRESH_TOKEN"],
+              "grant_type": "refresh_token"
+          }).json()["access_token"]
+          headers = {"Authorization": f"Bearer {token}"}
+
+          # Get or create folder
+          r = requests.get("https://www.googleapis.com/drive/v3/files",
+              params={"q": "name='חזון איש - עדויות' and mimeType='application/vnd.google-apps.folder' and trashed=false", "fields": "files(id)"},
+              headers=headers)
+          files = r.json().get("files", [])
+          if files:
+              folder_id = files[0]["id"]
+          else:
+              r = requests.post("https://www.googleapis.com/drive/v3/files",
+                  headers={**headers, "Content-Type": "application/json"},
+                  json={"name": "חזון איש - עדויות", "mimeType": "application/vnd.google-apps.folder"})
+              folder_id = r.json()["id"]
+          print(f"Drive folder: {folder_id}")
+
+          ok = 0
+          fail = 0
+          for i, url in enumerate(batch):
+              idx = START + i
+              print(f"\n=== [{idx+1}/{len(urls)}] {url[:80]} ===")
+              os.makedirs("tmp_video", exist_ok=True)
+
+              # Clear tmp
+              for f in os.listdir("tmp_video"):
+                  os.remove(f"tmp_video/{f}")
+
+              # Download with yt-dlp
+              result = subprocess.run([
+                  "yt-dlp", "--no-overwrites",
+                  "--merge-output-format", "mp4",
+                  "--socket-timeout", "30",
+                  "--retries", "2",
+                  "-o", "tmp_video/%(title)s [%(id)s].%(ext)s",
+                  url
+              ], capture_output=True, text=True, timeout=300)
+
+              # Check if file downloaded
+              downloaded = [f for f in os.listdir("tmp_video") if os.path.getsize(f"tmp_video/{f}") > 10000]
+              if not downloaded:
+                  print(f"  FAILED: No video downloaded")
+                  err = result.stderr[-200:] if result.stderr else ""
+                  print(f"  Error: {err}")
+                  fail += 1
+                  continue
+
+              # Upload to Drive
+              fpath = f"tmp_video/{downloaded[0]}"
+              fname = downloaded[0]
+              size = os.path.getsize(fpath)
+              print(f"  Downloaded: {fname} ({size/1024/1024:.1f} MB)")
+              print(f"  Uploading to Drive...")
+
+              try:
+                  # Refresh token if needed
+                  token = requests.post("https://oauth2.googleapis.com/token", data={
+                      "client_id": os.environ["CLIENT_ID"],
+                      "client_secret": os.environ["CLIENT_SECRET"],
+                      "refresh_token": os.environ["REFRESH_TOKEN"],
+                      "grant_type": "refresh_token"
+                  }).json()["access_token"]
+                  headers = {"Authorization": f"Bearer {token}"}
+
+                  r = requests.post("https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable",
+                      headers={**headers, "Content-Type": "application/json"},
+                      json={"name": fname, "parents": [folder_id]})
+                  if r.status_code == 200:
+                      with open(fpath, "rb") as f:
+                          r2 = requests.put(r.headers["Location"], data=f, headers={"Content-Type": "video/mp4"})
+                      if r2.status_code == 200:
+                          print(f"  UPLOADED OK: {r2.json().get('name')}")
+                          ok += 1
+                      else:
+                          print(f"  Upload failed: {r2.status_code}")
+                          fail += 1
+                  else:
+                      print(f"  Init failed: {r.status_code}")
+                      fail += 1
+              except Exception as e:
+                  print(f"  Upload error: {e}")
+                  fail += 1
+
+          print(f"\n=== SUMMARY ===")
+          print(f"OK: {ok}, Failed: {fail}")
+          print(f"Next batch: start={START+COUNT}")
+          PYEOF

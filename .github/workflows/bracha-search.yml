@@ -1,0 +1,70 @@
+name: Bracha Search (ASCII-safe)
+on:
+  workflow_dispatch:
+    inputs:
+      query:
+        description: 'Search query (Hebrew ok)'
+        required: true
+      limit:
+        description: 'Max results'
+        required: false
+        default: '15'
+
+permissions:
+  contents: write
+
+jobs:
+  search:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Setup Cloudflare WARP
+        uses: fscarmen/warp-on-actions@v1.1
+        with:
+          stack: dual
+      - name: Install yt-dlp
+        run: pip install -U yt-dlp
+      - name: Search YouTube (ASCII-safe output)
+        run: |
+          python3 << 'PYEOF'
+          import subprocess, json, base64, os
+          query = """${{ github.event.inputs.query }}"""
+          try: limit = int("""${{ github.event.inputs.limit }}""")
+          except: limit = 15
+          rows = []
+          for client in ("android","ios","tv","web"):
+              try:
+                  r = subprocess.run([
+                      "yt-dlp","--flat-playlist","--dump-json",
+                      "--extractor-args","youtube:player_client=%s" % client,
+                      "--playlist-end",str(limit),
+                      "ytsearch%d:%s" % (limit, query)
+                  ], capture_output=True, text=True, timeout=90, encoding="utf-8", errors="ignore")
+                  for line in r.stdout.strip().split("\n"):
+                      if not line.strip(): continue
+                      try:
+                          v = json.loads(line)
+                          vid = v.get("id","")
+                          if not vid: continue
+                          rows.append({
+                              "id": vid,
+                              "dur": v.get("duration",0) or 0,
+                              "title_b64": base64.b64encode((v.get("title","") or "").encode()).decode(),
+                              "chan_b64": base64.b64encode((v.get("uploader") or v.get("channel","") or "").encode()).decode(),
+                          })
+                      except: pass
+                  if rows: break
+              except Exception as e:
+                  print("client %s failed" % client)
+          # dedup by id
+          seen=set(); uniq=[]
+          for r in rows:
+              if r["id"] in seen: continue
+              seen.add(r["id"]); uniq.append(r)
+          payload = base64.b64encode(json.dumps(uniq).encode()).decode()
+          print("RESULT_COUNT=%d" % len(uniq))
+          print("PAYLOAD_BEGIN")
+          for i in range(0,len(payload),120):
+              print(payload[i:i+120])
+          print("PAYLOAD_END")
+          PYEOF

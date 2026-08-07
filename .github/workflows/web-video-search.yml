@@ -1,0 +1,165 @@
+name: Web Video Search - FAST (any site)
+
+on:
+  workflow_dispatch:
+    inputs:
+      query:
+        description: 'מה לחפש'
+        required: true
+      max_results:
+        description: 'כמות מקסימלית'
+        required: false
+        default: '30'
+
+permissions:
+  contents: write
+
+jobs:
+  search:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install minimal deps
+        run: pip install requests --quiet
+
+      - name: Run parallel search (no yt-dlp validation = FAST)
+        env:
+          QUERY: ${{ github.event.inputs.query }}
+          MAX: ${{ github.event.inputs.max_results }}
+        run: |
+          python3 << 'PY'
+          import os, re, json, time, urllib.parse, concurrent.futures
+          import requests
+
+          QUERY = os.environ['QUERY']
+          MAX = int(os.environ.get('MAX') or 30)
+          UA = {'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0 Safari/537.36',
+                'Accept-Language':'he-IL,he;q=0.9,en;q=0.8'}
+
+          videos = []
+          seen = set()
+
+          def add(url, title, source='', duration='', uploader='', thumb=''):
+              if not url or not url.startswith('http'): return
+              key = url.split('?')[0].split('#')[0].rstrip('/')
+              if key in seen: return
+              seen.add(key)
+              videos.append({
+                  'url': url, 'title': title.strip()[:200] or url,
+                  'duration': duration, 'uploader': uploader.strip()[:80],
+                  'thumbnail': thumb, 'source': source or 'Web',
+              })
+
+          # ========== ALL sources in PARALLEL ==========
+          def fetch_youtube():
+              try:
+                  r = requests.get('https://www.youtube.com/results',
+                                   params={'search_query': QUERY, 'sp':'EgIQAQ%253D%253D'},
+                                   headers=UA, timeout=10)
+                  results = []
+                  pattern = r'"videoRenderer":\{"videoId":"([^"]{11})"[^{]*?"title":\{"runs":\[\{"text":"([^"]+)"\}\][^{]*?(?:"lengthText":\{"accessibility":\{"accessibilityData":\{"label":"([^"]+)"\}\}[^{]*?"simpleText":"([^"]+)")?[^{]*?(?:"ownerText":\{"runs":\[\{"text":"([^"]+)"\})?'
+                  for m in re.finditer(pattern, r.text):
+                      vid = m.group(1)
+                      title = m.group(2)
+                      duration_text = m.group(4) or ''
+                      duration_sec = ''
+                      if duration_text:
+                          parts = duration_text.split(':')
+                          try:
+                              if len(parts) == 2:
+                                  duration_sec = str(int(parts[0])*60 + int(parts[1]))
+                              elif len(parts) == 3:
+                                  duration_sec = str(int(parts[0])*3600 + int(parts[1])*60 + int(parts[2]))
+                          except: pass
+                      uploader = m.group(5) or ''
+                      results.append({
+                          'url': f'https://www.youtube.com/watch?v={vid}',
+                          'title': title, 'source':'YouTube',
+                          'duration': duration_sec, 'uploader': uploader,
+                          'thumbnail': f'https://i.ytimg.com/vi/{vid}/mqdefault.jpg',
+                      })
+                  return results
+              except Exception as e:
+                  print(f'YouTube error: {e}')
+                  return []
+
+          def fetch_bing_videos():
+              try:
+                  r = requests.get('https://www.bing.com/videos/search',
+                                   params={'q': QUERY}, headers=UA, timeout=10)
+                  results = []
+                  for m in re.finditer(r'"mid":"[^"]+","murl":"([^"]+)","name":"([^"]+)"[^}]*?"duration":"([^"]*)"[^}]*?"thumbnail":"([^"]*)"', r.text):
+                      url = m.group(1).replace('\\/','/')
+                      title = m.group(2)
+                      dur = m.group(3)
+                      thumb = m.group(4).replace('\\/','/')
+                      results.append({'url': url, 'title': title, 'duration': dur, 'thumbnail': thumb, 'source':'Bing'})
+                  return results
+              except Exception as e:
+                  print(f'Bing error: {e}')
+                  return []
+
+          def fetch_ddg():
+              try:
+                  r = requests.get('https://duckduckgo.com/html/',
+                                   params={'q': QUERY + ' video site:vimeo.com OR site:dailymotion.com OR site:rumble.com OR site:odysee.com OR site:hidabroot.org'},
+                                   headers=UA, timeout=10)
+                  results = []
+                  for m in re.finditer(r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([^<]+)</a>', r.text):
+                      href = m.group(1)
+                      if 'uddg=' in href:
+                          mm = re.search(r'uddg=([^&]+)', href)
+                          if mm: href = urllib.parse.unquote(mm.group(1))
+                      title = m.group(2).strip()
+                      if href.startswith('http'):
+                          results.append({'url': href, 'title': title, 'source':'Web'})
+                  return results
+              except Exception as e:
+                  print(f'DDG error: {e}')
+                  return []
+
+          t0 = time.time()
+          with concurrent.futures.ThreadPoolExecutor(max_workers=3) as ex:
+              futures = {
+                  ex.submit(fetch_youtube): 'YouTube',
+                  ex.submit(fetch_bing_videos): 'Bing',
+                  ex.submit(fetch_ddg): 'DDG',
+              }
+              for fut in concurrent.futures.as_completed(futures, timeout=30):
+                  src = futures[fut]
+                  try:
+                      items = fut.result()
+                      for it in items:
+                          add(it['url'], it['title'], it.get('source','Web'),
+                              it.get('duration',''), it.get('uploader',''), it.get('thumbnail',''))
+                          if len(videos) >= MAX: break
+                      print(f'{src}: {len(items)} found (total now {len(videos)})')
+                  except Exception as e:
+                      print(f'{src} timeout/err: {e}')
+                  if len(videos) >= MAX: break
+
+          print(f'\nElapsed: {time.time()-t0:.1f}s')
+          videos = videos[:MAX]
+          output = {
+              'query': QUERY,
+              'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
+              'count': len(videos),
+              'results': videos,
+          }
+          with open('search_results.json', 'w', encoding='utf-8') as f:
+              json.dump(output, f, ensure_ascii=False, indent=2)
+          print(f'FINAL: {len(videos)} video results')
+          PY
+
+      - name: Commit results
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.email "actions@github.com"
+          git config user.name "Search Bot"
+          git add search_results.json
+          git commit -m "Search: ${{ github.event.inputs.query }}" || echo "no changes"
+          git push || echo "push failed"

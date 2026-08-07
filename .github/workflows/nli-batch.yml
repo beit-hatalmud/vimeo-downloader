@@ -1,0 +1,55 @@
+name: NLI Batch
+on:
+  workflow_dispatch:
+    inputs:
+      seed_url:
+        description: 'NLI seed URL — workflow finds related and downloads all'
+        required: true
+      include_seed:
+        description: 'Also download the seed item itself? true/false'
+        required: false
+        default: 'false'
+
+permissions:
+  contents: write
+
+jobs:
+  batch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    services:
+      flaresolverr:
+        image: ghcr.io/flaresolverr/flaresolverr:latest
+        ports:
+          - 8191:8191
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install
+        run: pip install requests
+      - name: Wait for FlareSolverr
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fs http://localhost:8191/ >/dev/null 2>&1; then break; fi
+            sleep 2
+          done
+      - name: Find related items
+        env:
+          FLARESOLVERR_URL: http://localhost:8191/v1
+        run: python3 nli_find_related.py "${{ github.event.inputs.seed_url }}"
+      - name: Maybe add seed to list
+        if: ${{ github.event.inputs.include_seed == 'true' }}
+        run: |
+          python3 -c "import json; urls=json.load(open('related_urls.json')); urls.insert(0,'${{ github.event.inputs.seed_url }}'); json.dump(urls, open('related_urls.json','w'))"
+      - name: Show list
+        run: cat related_urls.json
+      - name: Batch download → Drive
+        env:
+          FLARESOLVERR_URL: http://localhost:8191/v1
+          CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+        run: python3 nli_batch.py related_urls.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: batch-results
+          path: nli_batch_results.json

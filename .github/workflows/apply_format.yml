@@ -1,0 +1,31 @@
+name: Apply Sheet Format v3
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Call Apps Script + save response
+        run: |
+          RESP=$(curl -sL -X POST "https://script.google.com/macros/s/AKfycbw0qZch6TRxgSI4Ng4ySbVFZwyyxo9srfRPbUbtCkQ/exec" \
+            -d "action=formatResidentsSheet" \
+            -d "token=BHT_AGENT_2026" \
+            -d "sheetId=1SeCuaQ-rde0ABnSix_Y2rLqm9vq9AtqVgPDOEQ7FK-c" \
+            --data-urlencode 'dropdownValues=["צעירים","בית זכריה","ספרדי","אחר"]' \
+            --max-time 180)
+          echo "$RESP" > format_response.txt
+          echo "---"
+          echo "$RESP" | head -c 2000
+          echo "---"
+      - name: Commit response  
+        run: |
+          git config user.email "bot@bot.local"
+          git config user.name "Bot"
+          git add format_response.txt
+          git commit -m "response" || true
+          git push || true

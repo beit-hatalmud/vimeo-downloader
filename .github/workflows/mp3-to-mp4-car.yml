@@ -1,0 +1,134 @@
+name: MP3 to MP4 for Car
+on:
+  workflow_dispatch:
+    inputs:
+      source_folder:
+        description: 'Drive folder with MP3s'
+        required: true
+        default: 'לא תשכח - הרב גולדווסר'
+      target_folder:
+        description: 'Drive folder for MP4s'
+        required: false
+        default: 'לא תשכח - וידאו לרכב'
+      filter_pattern:
+        description: 'Only process files matching (regex, empty = all)'
+        required: false
+        default: 'פרק (5[4-9]|6[0-4])'
+
+permissions:
+  contents: read
+
+env:
+  CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+  CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+  REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Install
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y ffmpeg
+          pip install requests
+
+      - name: Generate static cover
+        run: |
+          # Create a 1280x720 image with podcast name
+          ffmpeg -y -f lavfi -i color=c=#1a3a5c:s=1280x720:d=1 \
+            -vf "drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text='Lo Tishkach':fontcolor=white:fontsize=80:x=(w-text_w)/2:y=(h-text_h)/2-50,drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf:text='Rabbi Goldwasser':fontcolor=#e8c275:fontsize=40:x=(w-text_w)/2:y=(h-text_h)/2+50" \
+            -frames:v 1 cover.jpg
+
+      - name: Download + Convert + Upload
+        env:
+          SRC_FOLDER: ${{ github.event.inputs.source_folder }}
+          DST_FOLDER: ${{ github.event.inputs.target_folder }}
+          PATTERN: ${{ github.event.inputs.filter_pattern }}
+        run: |
+          python3 << 'PYEOF'
+          import os, re, subprocess, requests, urllib.parse, json
+          tok = requests.post("https://oauth2.googleapis.com/token", data={
+              "client_id": os.environ["CLIENT_ID"], "client_secret": os.environ["CLIENT_SECRET"],
+              "refresh_token": os.environ["REFRESH_TOKEN"], "grant_type": "refresh_token"
+          }).json()["access_token"]
+          hdr = {"Authorization": f"Bearer {tok}"}
+
+          src_name = os.environ["SRC_FOLDER"]
+          dst_name = os.environ["DST_FOLDER"]
+          pattern = os.environ.get("PATTERN", "").strip()
+          regex = re.compile(pattern) if pattern else None
+
+          # Find source folder
+          q = f"name='{src_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
+          r = requests.get("https://www.googleapis.com/drive/v3/files", params={"q": q, "fields": "files(id)"}, headers=hdr).json()
+          if not r.get("files"):
+              print(f"Source not found: {src_name}"); exit(1)
+          src_id = r["files"][0]["id"]
+
+          # Find or create target folder
+          q = f"name='{dst_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
+          r = requests.get("https://www.googleapis.com/drive/v3/files", params={"q": q, "fields": "files(id)"}, headers=hdr).json()
+          if r.get("files"):
+              dst_id = r["files"][0]["id"]
+          else:
+              dst_id = requests.post("https://www.googleapis.com/drive/v3/files",
+                  headers={**hdr, "Content-Type": "application/json"},
+                  json={"name": dst_name, "mimeType": "application/vnd.google-apps.folder"}).json()["id"]
+          print(f"Target: https://drive.google.com/drive/folders/{dst_id}")
+
+          # List MP3s
+          q = f"'{src_id}' in parents and trashed=false"
+          r = requests.get("https://www.googleapis.com/drive/v3/files", params={"q": q, "fields": "files(id,name,size)", "pageSize": 200}, headers=hdr).json()
+          files = [f for f in r.get("files", []) if f["name"].endswith(".mp3")]
+          if regex:
+              files = [f for f in files if regex.search(f["name"])]
+          print(f"Files to process: {len(files)}")
+
+          # Get existing in target
+          q = f"'{dst_id}' in parents and trashed=false"
+          r2 = requests.get("https://www.googleapis.com/drive/v3/files", params={"q": q, "fields": "files(name)", "pageSize": 200}, headers=hdr).json()
+          existing = {f["name"] for f in r2.get("files", [])}
+
+          for i, f in enumerate(files):
+              mp4_name = f["name"].replace(".mp3", ".mp4")
+              if mp4_name in existing:
+                  print(f"[{i+1}/{len(files)}] {mp4_name[:60]} - skip exists")
+                  continue
+              print(f"[{i+1}/{len(files)}] {f['name'][:60]}")
+
+              # Download MP3
+              mp3_path = f"input_{i}.mp3"
+              mp4_path = f"output_{i}.mp4"
+              dl_url = f"https://www.googleapis.com/drive/v3/files/{f['id']}?alt=media"
+              with requests.get(dl_url, headers=hdr, stream=True) as r:
+                  with open(mp3_path, "wb") as out:
+                      for chunk in r.iter_content(8192*8): out.write(chunk)
+
+              # Convert MP3 → MP4 with static image, H264
+              cmd = ["ffmpeg", "-y", "-loop", "1", "-i", "cover.jpg", "-i", mp3_path,
+                     "-c:v", "libx264", "-tune", "stillimage", "-preset", "veryfast",
+                     "-crf", "28", "-pix_fmt", "yuv420p",
+                     "-c:a", "aac", "-b:a", "128k", "-ac", "2",
+                     "-shortest", "-movflags", "+faststart", mp4_path]
+              r = subprocess.run(cmd, capture_output=True)
+              if r.returncode != 0:
+                  print(f"  ffmpeg failed")
+                  continue
+
+              # Upload MP4
+              size = os.path.getsize(mp4_path)
+              up = requests.post("https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable",
+                  headers={**hdr, "Content-Type": "application/json"},
+                  json={"name": mp4_name, "parents": [dst_id]})
+              loc = up.headers.get("Location")
+              if loc:
+                  with open(mp4_path, "rb") as fb:
+                      r = requests.put(loc, data=fb.read())
+                  if r.status_code in (200, 201):
+                      print(f"  ✓ {size/(1024*1024):.1f}MB uploaded")
+              # Cleanup
+              os.unlink(mp3_path)
+              os.unlink(mp4_path)
+          print("DONE")
+          PYEOF

@@ -1,0 +1,183 @@
+name: YouTube to Drive
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'YouTube URL'
+        required: true
+      quality:
+        description: '360/480/720/1080/1440/2160/best'
+        required: false
+        default: 'best'
+      download_to_pc:
+        description: 'true/false - also expose for PC download'
+        required: false
+        default: 'false'
+      drive_folder:
+        description: 'Drive folder name (created if missing)'
+        required: false
+        default: 'סרטונים שהורדו'
+  repository_dispatch:
+    types: [download-youtube, youtube-download]
+
+permissions:
+  contents: write
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Cloudflare WARP
+        uses: fscarmen/warp-on-actions@v1.1
+        with:
+          stack: dual
+
+      - name: Install yt-dlp (latest) + ffmpeg + PO Token provider
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
+          pip install -U "yt-dlp[default]"
+          pip install bgutil-ytdlp-pot-provider 2>/dev/null && echo "bgutil installed" || echo "bgutil not available - will use no-POT clients"
+          yt-dlp --version
+
+      - name: Start PO Token server (background)
+        id: pot
+        run: |
+          if python3 -c "import bgutil_ytdlp_pot_provider" 2>/dev/null; then
+            python3 -m bgutil_ytdlp_pot_provider.server >/tmp/pot.log 2>&1 &
+            echo "pot_pid=$!" >> $GITHUB_OUTPUT
+            sleep 6
+            if curl -sf http://localhost:4416/status >/dev/null 2>&1; then
+              echo "pot_ready=true" >> $GITHUB_OUTPUT
+              echo "PO Token server ready on :4416"
+            else
+              echo "pot_ready=false" >> $GITHUB_OUTPUT
+              echo "PO Token server did not start - fallback to no-POT clients"
+              cat /tmp/pot.log 2>/dev/null || true
+            fi
+          else
+            echo "pot_ready=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Download YouTube video
+        env:
+          URL: ${{ github.event.inputs.url || github.event.client_payload.url }}
+          QUALITY: ${{ github.event.inputs.quality || github.event.client_payload.quality || 'best' }}
+          POT_READY: ${{ steps.pot.outputs.pot_ready }}
+        run: |
+          mkdir -p videos
+          QUALITY="${QUALITY:-best}"
+          echo "=== IP after WARP ==="
+          curl -s ifconfig.me; echo ""
+          if [ "$QUALITY" = "best" ]; then
+            FMT="bv*+ba/b"
+          else
+            FMT="bv*[height<=${QUALITY}]+ba/b[height<=${QUALITY}]"
+          fi
+
+          try_dl() {
+            local LABEL="$1"; shift
+            echo "--- Trying: $LABEL ---"
+            yt-dlp "$@" --no-overwrites --merge-output-format mp4 -f "$FMT" \
+              -o "videos/%(title)s.%(ext)s" "$URL" 2>&1
+            [ -n "$(ls -A videos/ 2>/dev/null)" ] && echo "SUCCESS via $LABEL" && return 0
+            return 1
+          }
+
+          # Method 1: web + PO Token (4K quality)
+          if [ "$POT_READY" = "true" ]; then
+            try_dl "web+PO-Token" \
+              --extractor-args "youtube:player_client=web,default" \
+              --extractor-args "youtube+pot:pot_provider=bgutil_http" \
+              && exit 0 || true
+          fi
+          # Method 2: tv_embedded (no PO Token, 1080p, very reliable)
+          try_dl "tv_embedded" --extractor-args "youtube:player_client=tv_embedded" && exit 0 || true
+          # Method 3: tv
+          try_dl "tv" --extractor-args "youtube:player_client=tv" && exit 0 || true
+          # Method 4: mweb
+          try_dl "mweb" --extractor-args "youtube:player_client=mweb" && exit 0 || true
+          # Method 5: ios
+          try_dl "ios" --extractor-args "youtube:player_client=ios" && exit 0 || true
+          # Method 6: android (last resort)
+          echo "--- Trying: android (last resort) ---"
+          yt-dlp --extractor-args "youtube:player_client=android" \
+            --no-overwrites -o "videos/%(title)s.%(ext)s" "$URL" 2>&1 || true
+
+          echo "=== Files ==="
+          ls -lh videos/ || echo "No files - all methods failed"
+
+      - name: Upload to Google Drive
+        if: always()
+        env:
+          CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+          DOWNLOAD_TO_PC: ${{ github.event.inputs.download_to_pc || github.event.client_payload.download_to_pc || 'false' }}
+          SOURCE_URL: ${{ github.event.inputs.url || github.event.client_payload.url }}
+          DRIVE_FOLDER: ${{ github.event.inputs.drive_folder || github.event.client_payload.drive_folder || 'סרטונים שהורדו' }}
+        run: |
+          python3 << 'PYEOF'
+          import requests, os, glob, json, mimetypes, time
+          token = requests.post('https://oauth2.googleapis.com/token', data={
+              'client_id': os.environ['CLIENT_ID'], 'client_secret': os.environ['CLIENT_SECRET'],
+              'refresh_token': os.environ['REFRESH_TOKEN'], 'grant_type': 'refresh_token'
+          }).json()['access_token']
+          headers = {'Authorization': f'Bearer {token}'}
+          folder_name = os.environ.get('DRIVE_FOLDER') or 'סרטונים שהורדו'
+          r = requests.get('https://www.googleapis.com/drive/v3/files',
+              params={'q': f"name='{folder_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false", 'fields': 'files(id)'},
+              headers=headers)
+          files = r.json().get('files', [])
+          fid = files[0]['id'] if files else requests.post('https://www.googleapis.com/drive/v3/files',
+              headers={**headers, 'Content-Type': 'application/json'},
+              json={'name': folder_name, 'mimeType': 'application/vnd.google-apps.folder'}).json()['id']
+          to_pc = os.environ.get('DOWNLOAD_TO_PC', 'false').lower() == 'true'
+          source_url = os.environ.get('SOURCE_URL', '')
+          uploaded = []
+          for fp in glob.glob('videos/*'):
+              sz = os.path.getsize(fp)
+              if sz < 1000 or fp.endswith('.json'): continue
+              fn = os.path.basename(fp)
+              print(f'Uploading: {fn} ({sz/1024/1024:.1f} MB)')
+              mime = mimetypes.guess_type(fn)[0] or 'video/mp4'
+              r = requests.post('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,name,size,mimeType',
+                  headers={**headers, 'Content-Type': 'application/json'}, json={'name': fn, 'parents': [fid]})
+              if r.status_code != 200: print(f'Init failed: {r.status_code}'); continue
+              with open(fp, 'rb') as f:
+                  r2 = requests.put(r.headers['Location'], data=f, headers={'Content-Type': mime})
+              if r2.status_code != 200: print(f'Upload FAILED: {r2.status_code}'); continue
+              file_id = r2.json().get('id')
+              print(f'SUCCESS: id={file_id}')
+              if to_pc and file_id:
+                  requests.post(f'https://www.googleapis.com/drive/v3/files/{file_id}/permissions',
+                      headers={**headers, 'Content-Type': 'application/json'},
+                      json={'role': 'reader', 'type': 'anyone'})
+              uploaded.append({'id': file_id, 'name': fn, 'size': sz, 'url': source_url, 'time': int(time.time()*1000)})
+          os.makedirs('docs', exist_ok=True)
+          path = 'docs/last_downloads.json'
+          history = []
+          if os.path.exists(path):
+              try:
+                  with open(path, encoding='utf-8') as f: history = json.load(f)
+              except: pass
+          history = uploaded + (history if isinstance(history, list) else [])
+          with open(path, 'w', encoding='utf-8') as f:
+              json.dump(history[:50], f, ensure_ascii=False, indent=1)
+          print(f'Recorded {len(uploaded)} downloads')
+          PYEOF
+
+      - name: Commit record
+        if: always()
+        run: |
+          set +e
+          git config user.name "VideoGrab Bot"
+          git config user.email "bot@videograb.local"
+          git add docs/last_downloads.json
+          if ! git diff --staged --quiet; then
+            git commit -m "Record YT download $(date +%H%M%S)"
+            for i in 1 2 3; do git pull --rebase origin master && git push && break; sleep 2; done
+          fi

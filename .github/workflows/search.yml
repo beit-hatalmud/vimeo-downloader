@@ -1,0 +1,426 @@
+name: Search Videos
+on:
+  workflow_dispatch:
+    inputs:
+      query:
+        description: 'Search query'
+        required: true
+      type:
+        description: 'all/video/audio/image/doc/presentation'
+        required: false
+        default: 'all'
+      limit:
+        description: 'Max results per source (default 25)'
+        required: false
+        default: '25'
+
+permissions:
+  contents: write
+
+jobs:
+  search:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Search all sources
+        env:
+          # SECURITY 2026-07-09: inputs come via env (not ${{ }}-into-source)
+          # so quote characters in a query can't escape the Python string.
+          QUERY: ${{ github.event.inputs.query }}
+          TYPE_FILTER: ${{ github.event.inputs.type }}
+          LIMIT_STR: ${{ github.event.inputs.limit }}
+        run: |
+          pip install requests yt-dlp --quiet
+          python3 << 'PYEOF'
+          import requests, json, os, re, subprocess, urllib.parse, html
+
+          query = os.environ.get("QUERY", "")
+          type_filter = os.environ.get("TYPE_FILTER", "") or "all"
+          try:
+              limit = int(os.environ.get("LIMIT_STR", "") or "25")
+          except: limit = 25
+          limit = max(5, min(100, limit))
+
+          results = []
+          UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0 Safari/537.36"
+
+          # ---------- helpers ----------
+          def fmt_for(kind, has_audio=True):
+              # Returns list of {label, value} format options for a result kind
+              if kind == "video":
+                  return [
+                      {"label": "MP4 מלא", "value": "best", "format": "video"},
+                      {"label": "MP4 1080p", "value": "1080", "format": "video"},
+                      {"label": "MP4 720p", "value": "720", "format": "video"},
+                      {"label": "MP4 480p", "value": "480", "format": "video"},
+                      {"label": "MP3 שמע", "value": "best", "format": "audio"},
+                  ]
+              if kind == "audio":
+                  return [
+                      {"label": "MP3", "value": "best", "format": "audio"},
+                      {"label": "MP3 איכות גבוהה", "value": "best", "format": "audio"},
+                  ]
+              if kind == "image":
+                  return [{"label": "מקור", "value": "best", "format": "video"}]
+              if kind == "doc" or kind == "presentation":
+                  return [{"label": "PDF/קובץ", "value": "best", "format": "video"}]
+              return [{"label": "מלא", "value": "best", "format": "video"}]
+
+          def add_result(item):
+              # item must contain title+url; fill defaults
+              kind = item.get("kind", "video")
+              if "formats" not in item:
+                  item["formats"] = fmt_for(kind)
+              item.setdefault("duration", 0)
+              item.setdefault("thumb", "")
+              item.setdefault("description", "")
+              item.setdefault("channel", "")
+              item.setdefault("date", "")
+              results.append(item)
+
+          # ---------- VIDEO SOURCES (skipped if type filter explicitly excludes video) ----------
+          want_video = type_filter in ("all", "video", "audio")
+          want_audio_only = type_filter == "audio"
+          want_image = type_filter in ("all", "image")
+          want_doc = type_filter in ("all", "doc", "presentation")
+
+          # 1. YouTube via yt-dlp (with WARP)
+          if want_video:
+              print("Searching YouTube...")
+              try:
+                  r = subprocess.run([
+                      "yt-dlp", "--flat-playlist", "--dump-json",
+                      "--extractor-args", "youtube:player_client=android",
+                      "--playlist-end", str(limit),
+                      "ytsearch%d:%s" % (limit, query)
+                  ], capture_output=True, text=True, timeout=45, encoding="utf-8", errors="ignore")
+                  cnt = 0
+                  for line in r.stdout.strip().split("\n"):
+                      if not line.strip(): continue
+                      try:
+                          v = json.loads(line)
+                          vid_id = v.get("id", "")
+                          thumbs = v.get("thumbnails", [])
+                          thumb = thumbs[-1]["url"] if thumbs else "https://i.ytimg.com/vi/%s/mqdefault.jpg" % vid_id
+                          add_result({
+                              "title": v.get("title", ""),
+                              "url": "https://www.youtube.com/watch?v=" + vid_id,
+                              "thumb": thumb,
+                              "duration": v.get("duration", 0) or 0,
+                              "channel": v.get("uploader") or v.get("channel", ""),
+                              "source": "YouTube",
+                              "kind": "video",
+                          })
+                          cnt += 1
+                      except: pass
+                  print("  YouTube: %d" % cnt)
+              except Exception as e:
+                  print("  YouTube error: %s" % e)
+
+          # 2. Dailymotion
+          if want_video:
+              print("Searching Dailymotion...")
+              try:
+                  r = requests.get("https://api.dailymotion.com/videos", params={
+                      "search": query,
+                      "fields": "id,title,thumbnail_240_url,duration,url,owner.screenname,created_time,description",
+                      "limit": min(limit, 100), "sort": "relevance"
+                  }, timeout=12)
+                  if r.status_code == 200:
+                      cnt = 0
+                      for v in r.json().get("list", []):
+                          ct = v.get("created_time", 0)
+                          add_result({
+                              "title": v.get("title", ""),
+                              "url": v.get("url", ""),
+                              "thumb": v.get("thumbnail_240_url", ""),
+                              "duration": v.get("duration", 0) or 0,
+                              "channel": v.get("owner.screenname", ""),
+                              "description": (v.get("description") or "")[:200],
+                              "date": (subprocess.run(["date","-u","-d","@%d" % ct,"+%Y-%m-%d"],capture_output=True,text=True).stdout.strip() if ct else ""),
+                              "source": "Dailymotion",
+                              "kind": "video",
+                          })
+                          cnt += 1
+                      print("  Dailymotion: %d" % cnt)
+              except Exception as e:
+                  print("  Dailymotion error: %s" % e)
+
+          # 3. Vimeo (public API key-less search via web)
+          if want_video:
+              print("Searching Vimeo...")
+              try:
+                  r = requests.get("https://api.vimeo.com/videos",
+                      params={"query": query, "per_page": min(limit, 50), "sort": "relevant"},
+                      headers={"Authorization": "Bearer unauthenticated", "Accept": "application/vnd.vimeo.*+json;version=3.4"},
+                      timeout=12)
+                  if r.status_code == 200:
+                      cnt = 0
+                      for v in r.json().get("data", []):
+                          pics = v.get("pictures", {}).get("sizes", [])
+                          add_result({
+                              "title": v.get("name", ""),
+                              "url": v.get("link", ""),
+                              "thumb": pics[2]["link"] if len(pics) > 2 else (pics[-1]["link"] if pics else ""),
+                              "duration": v.get("duration", 0) or 0,
+                              "channel": (v.get("user") or {}).get("name", ""),
+                              "description": (v.get("description") or "")[:200],
+                              "date": (v.get("created_time") or "")[:10],
+                              "source": "Vimeo",
+                              "kind": "video",
+                          })
+                          cnt += 1
+                      print("  Vimeo: %d" % cnt)
+              except Exception as e:
+                  print("  Vimeo error: %s" % e)
+
+          # 4. Hidabroot (Hebrew religious lectures)
+          if want_video:
+              print("Searching Hidabroot...")
+              try:
+                  r = requests.get("https://www.hidabroot.org/search",
+                      params={"q": query},
+                      headers={"User-Agent": UA}, timeout=12)
+                  if r.status_code == 200:
+                      links = re.findall(r'href="(/video/\d+)"[^>]*>([^<]+)', r.text)
+                      seen = set()
+                      cnt = 0
+                      for link, title in links[:limit]:
+                          if link in seen: continue
+                          seen.add(link)
+                          add_result({
+                              "title": html.unescape(title.strip()),
+                              "url": "https://www.hidabroot.org" + link,
+                              "source": "הידברות",
+                              "kind": "video",
+                          })
+                          cnt += 1
+                      print("  Hidabroot: %d" % cnt)
+              except Exception as e:
+                  print("  Hidabroot error: %s" % e)
+
+          # 5. Archive.org (movies/audio/texts)
+          if want_video or want_audio_only or want_doc:
+              print("Searching Archive.org...")
+              try:
+                  mtype = ""
+                  if type_filter == "audio": mtype = " mediatype:(audio)"
+                  elif type_filter == "doc" or type_filter == "presentation": mtype = " mediatype:(texts)"
+                  elif type_filter == "image": mtype = " mediatype:(image)"
+                  else: mtype = " mediatype:(movies OR audio OR texts)"
+                  r = requests.get("https://archive.org/advancedsearch.php", params={
+                      "q": query + mtype,
+                      "fl[]": "identifier,title,mediatype,creator,date,description",
+                      "rows": min(limit, 50), "output": "json"
+                  }, timeout=12)
+                  if r.status_code == 200:
+                      cnt = 0
+                      for doc in r.json().get("response", {}).get("docs", []):
+                          ident = doc.get("identifier", "")
+                          mt = doc.get("mediatype", "movies")
+                          kind = "video"
+                          if mt == "audio": kind = "audio"
+                          elif mt == "texts": kind = "doc"
+                          elif mt == "image": kind = "image"
+                          add_result({
+                              "title": doc.get("title", "") if isinstance(doc.get("title"), str) else " ".join(doc.get("title", [])),
+                              "url": "https://archive.org/details/" + ident,
+                              "thumb": "https://archive.org/services/img/" + ident,
+                              "channel": doc.get("creator", "") if isinstance(doc.get("creator"), str) else "",
+                              "date": (doc.get("date") or "")[:10],
+                              "description": (doc.get("description") or "")[:200] if isinstance(doc.get("description"), str) else "",
+                              "source": "Archive.org",
+                              "kind": kind,
+                          })
+                          cnt += 1
+                      print("  Archive.org: %d" % cnt)
+              except Exception as e:
+                  print("  Archive.org error: %s" % e)
+
+          # 6. Rumble (HTML scrape — public site)
+          if want_video:
+              print("Searching Rumble...")
+              try:
+                  r = requests.get("https://rumble.com/search/video",
+                      params={"q": query},
+                      headers={"User-Agent": UA}, timeout=12)
+                  if r.status_code == 200:
+                      # video cards: <a class="..." href="/v..."> <h3 class="...">title</h3>
+                      pattern = re.compile(r'<a[^>]+href="(/v[^"]+\.html)"[^>]*>.*?<h3[^>]*>([^<]+)</h3>', re.DOTALL)
+                      seen = set()
+                      cnt = 0
+                      for m in pattern.finditer(r.text):
+                          path, title = m.group(1), html.unescape(m.group(2).strip())
+                          if path in seen: continue
+                          seen.add(path)
+                          add_result({
+                              "title": title,
+                              "url": "https://rumble.com" + path,
+                              "source": "Rumble",
+                              "kind": "video",
+                          })
+                          cnt += 1
+                          if cnt >= limit: break
+                      print("  Rumble: %d" % cnt)
+              except Exception as e:
+                  print("  Rumble error: %s" % e)
+
+          # 7. Odysee / LBRY (public search API)
+          if want_video:
+              print("Searching Odysee...")
+              try:
+                  r = requests.get("https://lighthouse.odysee.tv/search",
+                      params={"s": query, "size": min(limit, 50), "from": 0,
+                              "claimType": "stream", "mediaType": "video"},
+                      headers={"User-Agent": UA}, timeout=12)
+                  if r.status_code == 200:
+                      cnt = 0
+                      for d in r.json():
+                          name = d.get("name", "")
+                          claim_id = d.get("claimId", "")
+                          if not name or not claim_id: continue
+                          chan = d.get("channel", "")
+                          add_result({
+                              "title": d.get("title") or name,
+                              "url": "https://odysee.com/%s:%s" % (name, claim_id[:1]),
+                              "thumb": d.get("thumbnail_url", ""),
+                              "duration": d.get("duration", 0) or 0,
+                              "channel": chan,
+                              "source": "Odysee",
+                              "kind": "video",
+                          })
+                          cnt += 1
+                      print("  Odysee: %d" % cnt)
+              except Exception as e:
+                  print("  Odysee error: %s" % e)
+
+          # 8. Bitchute (HTML scrape — public site)
+          if want_video:
+              print("Searching Bitchute...")
+              try:
+                  r = requests.post("https://www.bitchute.com/api/search/list/",
+                      data={"query": query, "kind": "video", "duration": "", "sort": "new",
+                            "page": 0},
+                      headers={"User-Agent": UA, "Accept": "application/json"}, timeout=12)
+                  if r.status_code == 200:
+                      try:
+                          data = r.json()
+                          cnt = 0
+                          for v in (data.get("results") or [])[:limit]:
+                              add_result({
+                                  "title": v.get("name", ""),
+                                  "url": "https://www.bitchute.com/video/%s/" % v.get("id", ""),
+                                  "thumb": v.get("thumbnail_url", ""),
+                                  "duration": v.get("duration", 0) or 0,
+                                  "channel": (v.get("channel") or {}).get("name", ""),
+                                  "source": "Bitchute",
+                                  "kind": "video",
+                              })
+                              cnt += 1
+                          print("  Bitchute: %d" % cnt)
+                      except: print("  Bitchute parse error")
+              except Exception as e:
+                  print("  Bitchute error: %s" % e)
+
+          # 9. Wikimedia Commons (CC media — images/audio/video/docs)
+          if want_image or want_audio_only or want_doc or type_filter == "all":
+              print("Searching Wikimedia Commons...")
+              try:
+                  filetype = "bitmap"
+                  kind_map = "image"
+                  if want_audio_only: filetype = "audio"; kind_map = "audio"
+                  elif type_filter == "video": filetype = "video"; kind_map = "video"
+                  elif type_filter == "doc": filetype = "office"; kind_map = "doc"
+                  r = requests.get("https://commons.wikimedia.org/w/api.php", params={
+                      "action": "query", "list": "search",
+                      "srsearch": query + (" filetype:" + filetype if filetype != "office" else ""),
+                      "srnamespace": "6", "srlimit": min(limit, 50),
+                      "format": "json"
+                  }, headers={"User-Agent": UA}, timeout=12)
+                  if r.status_code == 200:
+                      cnt = 0
+                      for p in r.json().get("query", {}).get("search", []):
+                          title = p.get("title", "")
+                          if not title.startswith("File:"): continue
+                          fname = title[5:]
+                          add_result({
+                              "title": fname,
+                              "url": "https://commons.wikimedia.org/wiki/" + urllib.parse.quote(title),
+                              "thumb": "https://commons.wikimedia.org/wiki/Special:FilePath/" + urllib.parse.quote(fname) + "?width=240",
+                              "source": "Wikimedia",
+                              "kind": kind_map,
+                          })
+                          cnt += 1
+                      print("  Wikimedia: %d" % cnt)
+              except Exception as e:
+                  print("  Wikimedia error: %s" % e)
+
+          # 10. SlideShare (presentations) — DuckDuckGo HTML proxy
+          if want_doc or type_filter == "presentation" or type_filter == "all":
+              print("Searching SlideShare...")
+              try:
+                  r = requests.get("https://duckduckgo.com/html/", params={
+                      "q": "site:slideshare.net " + query
+                  }, headers={"User-Agent": UA}, timeout=12)
+                  if r.status_code == 200:
+                      pat = re.compile(r'<a[^>]+class="result__a"[^>]+href="([^"]+slideshare\.net[^"]+)"[^>]*>([^<]+)</a>', re.DOTALL)
+                      cnt = 0
+                      for m in pat.finditer(r.text):
+                          link = html.unescape(m.group(1))
+                          # DDG redirect → unwrap
+                          if "uddg=" in link:
+                              try:
+                                  link = urllib.parse.unquote(re.search(r'uddg=([^&]+)', link).group(1))
+                              except: pass
+                          add_result({
+                              "title": html.unescape(m.group(2).strip()),
+                              "url": link,
+                              "source": "SlideShare",
+                              "kind": "presentation",
+                          })
+                          cnt += 1
+                          if cnt >= min(limit, 20): break
+                      print("  SlideShare: %d" % cnt)
+              except Exception as e:
+                  print("  SlideShare error: %s" % e)
+
+          # ---------- POST PROCESSING ----------
+          # Apply type filter (defensive)
+          if type_filter != "all":
+              if type_filter == "video":
+                  results = [r for r in results if r.get("kind") in ("video",)]
+              else:
+                  results = [r for r in results if r.get("kind") == type_filter]
+
+          # Dedupe by url
+          seen = set(); deduped = []
+          for r in results:
+              u = r.get("url", "")
+              if u and u not in seen:
+                  seen.add(u); deduped.append(r)
+          results = deduped
+
+          print("Total: %d results" % len(results))
+          os.makedirs("docs", exist_ok=True)
+          with open("docs/search_results.json", "w", encoding="utf-8") as f:
+              json.dump({
+                  "query": query,
+                  "type": type_filter,
+                  "count": len(results),
+                  "results": results
+              }, f, ensure_ascii=False)
+          PYEOF
+
+      - name: Publish results
+        run: |
+          git config user.email "bot@github.com"
+          git config user.name "Search Bot"
+          git add docs/search_results.json
+          git commit -m "Search: ${{ github.event.inputs.query }}" || true
+          for i in 1 2 3; do
+            git pull --rebase origin master
+            git push && break
+            sleep 2
+          done

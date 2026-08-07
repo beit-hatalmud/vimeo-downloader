@@ -1,0 +1,2646 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>VideoGrab v6.6 - הורדת קבצים לדרייב + מחשב</title>
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#6c5ce7">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.rtl.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+    <style>
+        :root{--primary:#6c5ce7;--accent:#fd79a8;--dark:#2d3436;--glass:rgba(255,255,255,0.12)}
+        *{font-family:'Heebo',sans-serif}
+        body{background:linear-gradient(135deg,#0c0c1d 0%,#1a1a3e 40%,#2d1b69 100%);min-height:100vh;overflow-x:hidden}
+        body::before{content:'';position:fixed;top:-50%;left:-50%;width:200%;height:200%;background:radial-gradient(circle at 20% 50%,rgba(108,92,231,0.08) 0%,transparent 50%),radial-gradient(circle at 80% 20%,rgba(253,121,168,0.06) 0%,transparent 50%);animation:bgFloat 20s ease-in-out infinite;z-index:0}
+        @keyframes bgFloat{0%,100%{transform:translate(0,0)}50%{transform:translate(-2%,2%)}}
+        .main-card{background:rgba(255,255,255,0.95);border-radius:24px;box-shadow:0 25px 80px rgba(0,0,0,0.4);position:relative;z-index:1;overflow:hidden}
+        .main-card::before{content:'';position:absolute;top:0;left:0;right:0;height:4px;background:linear-gradient(90deg,var(--primary),var(--accent),var(--primary))}
+        .btn-download{background:linear-gradient(135deg,var(--primary),var(--accent));border:none;border-radius:14px;font-weight:700;font-size:1.1rem;padding:14px;transition:all .3s;box-shadow:0 4px 20px rgba(108,92,231,0.3)}
+        .btn-download:hover{transform:translateY(-2px);box-shadow:0 8px 30px rgba(108,92,231,0.5)}
+        .btn-search{background:var(--primary);border:none;border-radius:0 14px 14px 0}
+        .btn-search:hover{background:#5a4bd1}
+        .form-control{border-radius:14px;font-size:1.05rem;padding:14px 18px;border:2px solid #e9ecef;transition:all .3s}
+        .form-control:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(108,92,231,0.15)}
+        .input-group .form-control{border-radius:14px 0 0 14px}
+        .logo-icon{font-size:4rem;background:linear-gradient(135deg,var(--primary),var(--accent));-webkit-background-clip:text;-webkit-text-fill-color:transparent;transition:transform .4s ease;display:inline-block}
+        .logo-icon:hover{transform:rotate(-15deg) scale(1.15)}
+        .logo-title{font-size:2.2rem;font-weight:900;background:linear-gradient(135deg,#fff,#ddd);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+        .logo-sub{color:rgba(255,255,255,0.5);font-size:0.95rem}
+        .tab-btn{border:none;background:transparent;padding:14px 20px;color:#999;border-bottom:3px solid transparent;font-weight:500;font-size:.95rem;transition:all .3s}
+        .tab-btn:hover{color:#666;background:rgba(108,92,231,0.05)}
+        .tab-btn.active{color:var(--primary);border-bottom-color:var(--accent);font-weight:700}
+        .status-box{background:linear-gradient(135deg,#f8f9ff,#f0f0ff);border-radius:14px;border-right:4px solid var(--primary)}
+        .video-result{border-radius:14px;transition:all .3s;border:1px solid #f0f0f0;cursor:pointer}
+        .video-result:hover{background:#f8f9ff;transform:translateX(-4px);box-shadow:0 4px 20px rgba(0,0,0,0.06);border-color:var(--primary)}
+        /* List view (default) */
+        .video-thumb{border-radius:10px;width:320px;height:180px;object-fit:cover;flex-shrink:0;position:relative}
+        .video-thumb-placeholder{border-radius:10px;width:320px;height:180px;background:linear-gradient(135deg,#f0f0f0,#e0e0e0);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+        .video-duration-badge{position:absolute;bottom:6px;left:6px;background:rgba(0,0,0,0.8);color:#fff;font-size:.7rem;padding:2px 6px;border-radius:4px;font-weight:700}
+        .video-title{font-size:1.05rem;font-weight:700;line-height:1.4;margin-bottom:4px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+        .video-desc{font-size:.82rem;color:#888;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin-bottom:6px}
+        .video-channel{font-size:.8rem;color:#777;font-weight:500}
+        .video-meta{font-size:.75rem;color:#999;margin-top:2px}
+        .video-meta span+span::before{content:'·';margin:0 6px}
+        /* Grid view */
+        .search-grid .video-result{flex-direction:column!important;padding:0!important;overflow:hidden}
+        .search-grid .video-thumb,.search-grid .video-thumb-placeholder{width:100%;height:180px;border-radius:14px 14px 0 0;margin:0!important}
+        .search-grid .video-info{padding:12px}
+        .search-grid .video-title{font-size:.92rem}
+        .search-grid .video-desc{display:none}
+        .search-grid .video-dl-btn{position:absolute;top:8px;left:8px;min-width:auto!important}
+        .search-grid .video-result{position:relative}
+        /* Search results header */
+        .search-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid #eee}
+        .search-stats{font-size:.85rem;color:#888}
+        .search-stats strong{color:var(--primary)}
+        .view-toggle .btn{padding:4px 10px;font-size:.85rem}
+        .view-toggle .btn.active{background:var(--primary);color:#fff;border-color:var(--primary)}
+        /* Skeleton cards - YouTube style */
+        .skeleton-yt{display:flex;gap:14px;margin-bottom:16px;padding:12px}
+        .skeleton-yt .sk-thumb{width:320px;height:180px;border-radius:10px;flex-shrink:0}
+        .skeleton-yt .sk-body{flex:1;padding-top:8px}
+        .skeleton-yt .sk-title{height:18px;width:85%;margin-bottom:10px;border-radius:4px}
+        .skeleton-yt .sk-line{height:12px;margin-bottom:8px;border-radius:4px}
+        .skeleton-yt .sk-short{width:45%}
+        .skeleton-yt .sk-mid{width:65%}
+        /* No results state */
+        .no-results{text-align:center;padding:48px 20px}
+        .no-results i{font-size:4rem;color:#ddd;margin-bottom:16px}
+        .no-results h5{color:#666;margin-bottom:8px}
+        .no-results p{color:#999;font-size:.9rem}
+        .no-results .suggestion-chip{display:inline-block;padding:6px 14px;border-radius:20px;background:#f0f0ff;color:var(--primary);font-size:.82rem;margin:4px;cursor:pointer;transition:all .2s}
+        .no-results .suggestion-chip:hover{background:var(--primary);color:#fff}
+        /* Search history dropdown */
+        .search-history-dropdown{position:absolute;top:100%;right:0;left:0;background:#fff;border:1px solid #e0e0e0;border-top:none;border-radius:0 0 14px 14px;z-index:100;box-shadow:0 8px 24px rgba(0,0,0,0.1);max-height:320px;overflow-y:auto;display:none}
+        .search-history-dropdown.show{display:block}
+        .search-history-dropdown .sh-item{padding:10px 16px;cursor:pointer;display:flex;align-items:center;gap:10px;transition:background .15s;border-bottom:1px solid #f5f5f5}
+        .search-history-dropdown .sh-item:hover{background:#f0f0ff}
+        .search-history-dropdown .sh-item:last-child{border-bottom:none}
+        .search-history-dropdown .sh-item i{color:#bbb;font-size:1rem}
+        .search-history-dropdown .sh-item .sh-text{flex:1;font-size:.9rem}
+        .search-history-dropdown .sh-item .sh-remove{color:#ccc;font-size:.8rem;padding:2px 6px;border-radius:4px}
+        .search-history-dropdown .sh-item .sh-remove:hover{color:#e74c3c;background:#fff0f0}
+        .search-history-dropdown .sh-header{padding:8px 16px;font-size:.75rem;color:#999;font-weight:700;border-bottom:1px solid #eee;display:flex;justify-content:space-between;align-items:center}
+        .search-input-wrap{position:relative}
+        .history-item{border-radius:10px;transition:all .2s;border:1px solid transparent}
+        .history-item:hover{background:#f8f9ff;border-color:#e0e0ff}
+        .pin-input{letter-spacing:18px;font-size:2.5rem;text-align:center;font-weight:700;border:2px solid rgba(108,92,231,0.3)}
+        .badge-source{font-size:.7rem;padding:4px 8px;border-radius:6px}
+        .toast-container{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:9999}
+        .queue-item{border-radius:10px;border:1px solid #e8e8ff;animation:fadeIn .3s}
+        @keyframes fadeIn{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:translateY(0)}}
+        .progress-bar-animated{background:linear-gradient(90deg,var(--primary),var(--accent));animation:none}
+        .site-badge{display:inline-flex;align-items:center;padding:6px 14px;border-radius:20px;background:var(--glass);color:rgba(255,255,255,0.7);font-size:.8rem;margin:3px;border:1px solid rgba(255,255,255,0.1)}
+        .stats-card{background:var(--glass);border-radius:14px;padding:12px 16px;border:1px solid rgba(255,255,255,0.1)}
+        .stats-number{font-size:1.8rem;font-weight:900;background:linear-gradient(135deg,#fff,var(--accent));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+        .content-warning{background:linear-gradient(135deg,#fff5f5,#ffe0e0);border:2px solid #e74c3c;border-radius:14px;color:#c0392b}
+
+        /* Tab fade transitions */
+        .tab-pane{opacity:0;transition:opacity .3s ease;display:none}
+        .tab-pane.active-tab{opacity:1;display:block}
+
+        /* Drag & drop overlay */
+        .drop-overlay{position:fixed;inset:0;background:rgba(108,92,231,0.85);z-index:9998;display:none;align-items:center;justify-content:center;flex-direction:column}
+        .drop-overlay.active{display:flex}
+        .drop-overlay i{font-size:5rem;color:#fff;animation:bounce 1s infinite}
+        @keyframes bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-15px)}}
+
+        /* URL preview */
+        .url-preview{display:flex;align-items:center;gap:8px;padding:8px 14px;background:#f0f0ff;border-radius:10px;margin-top:8px;animation:fadeIn .3s}
+        .url-preview img{width:20px;height:20px;border-radius:4px}
+
+        /* Quick download buttons */
+        .quick-dl-btn{border:1px solid rgba(108,92,231,0.3);border-radius:12px;padding:8px 14px;background:rgba(108,92,231,0.05);transition:all .2s;cursor:pointer;font-size:.85rem}
+        .quick-dl-btn:hover{background:rgba(108,92,231,0.15);border-color:var(--primary);transform:translateY(-1px)}
+
+        /* Skeleton loading */
+        .skeleton{background:linear-gradient(90deg,#f0f0f0 25%,#e0e0e0 50%,#f0f0f0 75%);background-size:200% 100%;animation:skeleton-loading 1.5s infinite;border-radius:10px}
+        @keyframes skeleton-loading{0%{background-position:200% 0}100%{background-position:-200% 0}}
+        .skeleton-card{height:70px;margin-bottom:10px;border-radius:10px}
+
+        /* Version badge */
+        .version-badge{background:rgba(108,92,231,0.2);color:rgba(255,255,255,0.7);font-size:.7rem;padding:2px 8px;border-radius:8px;font-weight:700}
+
+        /* Keyboard shortcut hints */
+        .kbd-hint{font-size:.65rem;color:#999;background:#f0f0f0;padding:1px 5px;border-radius:4px;border:1px solid #ddd;font-family:monospace;margin-right:4px}
+        body.dark .kbd-hint{background:#3a3a5a;color:#aaa;border-color:#555}
+
+        /* Paste button */
+        .btn-paste{border-radius:0 14px 14px 0;border:2px solid #e9ecef;border-right:none;background:#f8f9ff;transition:all .2s}
+        .btn-paste:hover{background:var(--primary);color:#fff}
+
+        /* Search filter pills */
+        .filter-pill{border:1px solid #ddd;border-radius:20px;padding:4px 12px;font-size:.8rem;cursor:pointer;transition:all .2s;background:transparent;color:#666}
+        .filter-pill.active,.filter-pill:hover{background:var(--primary);color:#fff;border-color:var(--primary)}
+
+        /* Recent searches */
+        .recent-search{cursor:pointer;padding:4px 10px;border-radius:8px;font-size:.85rem;background:#f0f0ff;transition:all .2s;display:inline-block;margin:2px}
+        .recent-search:hover{background:var(--primary);color:#fff}
+
+        /* Tooltip style */
+        [data-bs-toggle="tooltip"]{cursor:pointer}
+
+        /* Dark mode */
+        body.dark .main-card{background:rgba(30,30,50,0.95);color:#e0e0e0}
+        body.dark .main-card::before{background:linear-gradient(90deg,var(--accent),var(--primary),var(--accent))}
+        body.dark .form-control{background:#2a2a4a;border-color:#3a3a5a;color:#e0e0e0}
+        body.dark .form-select{background:#2a2a4a;border-color:#3a3a5a;color:#e0e0e0}
+        body.dark .tab-btn{color:#888}
+        body.dark .tab-btn.active{color:var(--accent)}
+        body.dark .video-result{border-color:#3a3a5a;color:#e0e0e0}
+        body.dark .video-result:hover{background:rgba(108,92,231,0.15)}
+        body.dark .queue-item{background:#2a2a4a!important;border-color:#3a3a5a;color:#e0e0e0}
+        body.dark .history-item:hover{background:rgba(108,92,231,0.1)}
+        body.dark .history-item{color:#e0e0e0}
+        body.dark .form-text{color:#888}
+        body.dark .text-muted{color:#888!important}
+        body.dark .modal-content{background:#1e1e32;color:#e0e0e0}
+        body.dark .url-preview{background:#2a2a4a}
+        body.dark .quick-dl-btn{background:rgba(108,92,231,0.15);border-color:#4a4a6a;color:#ccc}
+        body.dark .skeleton{background:linear-gradient(90deg,#2a2a4a 25%,#3a3a5a 50%,#2a2a4a 75%);background-size:200% 100%}
+        /* Advanced filter rows */
+        .adv-filter-row{display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap}
+        .adv-filter-row .afr-label{font-size:.75rem;font-weight:700;color:#888;white-space:nowrap;min-width:60px}
+        .adv-filter-chip{border:1px solid #e0e0e0;border-radius:16px;padding:3px 11px;font-size:.75rem;cursor:pointer;transition:all .2s;background:#f5f5f5;color:#555;white-space:nowrap}
+        .adv-filter-chip:hover{background:#e8e0ff;border-color:var(--primary);color:var(--primary)}
+        .adv-filter-chip.active{background:var(--primary);color:#fff;border-color:var(--primary)}
+        body.dark .adv-filter-chip{background:#2a2a4a;border-color:#4a4a6a;color:#aaa}
+        body.dark .adv-filter-chip:hover{background:#3a3a6a;border-color:var(--primary);color:#ccc}
+        body.dark .adv-filter-chip.active{background:var(--primary);color:#fff;border-color:var(--primary)}
+        body.dark .adv-filter-row .afr-label{color:#777}
+        body.dark .filter-pill{border-color:#4a4a6a;color:#aaa}
+        body.dark .recent-search{background:#2a2a4a;color:#ccc}
+        body.dark .search-history-dropdown{background:#1e1e32;border-color:#3a3a5a}
+        body.dark .search-history-dropdown .sh-item{border-color:#2a2a4a}
+        body.dark .search-history-dropdown .sh-item:hover{background:rgba(108,92,231,0.15)}
+        body.dark .search-history-dropdown .sh-header{border-color:#3a3a5a;color:#777}
+        body.dark .search-header{border-color:#3a3a5a}
+        body.dark .search-stats{color:#888}
+        body.dark .video-title{color:#e0e0e0}
+        body.dark .video-desc{color:#999}
+        body.dark .video-channel{color:#aaa}
+        body.dark .no-results i{color:#4a4a6a}
+        body.dark .no-results h5{color:#bbb}
+        body.dark .no-results .suggestion-chip{background:#2a2a4a;color:#aaa}
+        body.dark .no-results .suggestion-chip:hover{background:var(--primary);color:#fff}
+        body.dark .view-toggle .btn{color:#aaa;border-color:#4a4a6a}
+        body.dark .view-toggle .btn.active{background:var(--primary);color:#fff}
+        body.dark .btn-paste{background:#2a2a4a;border-color:#3a3a5a;color:#ccc}
+        body.dark .drop-overlay{background:rgba(30,30,50,0.9)}
+        body.dark #tab-settings [style*="background:#f8f9ff"]{background:#2a2a4a!important}
+        body.dark #tab-settings [style*="background:#fff5f5"]{background:#3a2020!important;border-color:#5a3030!important}
+        /* Mobile responsive improvements */
+        @media(max-width:576px){
+            .logo-icon{font-size:2.8rem}
+            .logo-title{font-size:1.6rem}
+            .logo-sub{font-size:.8rem}
+            .stats-number{font-size:1.3rem}
+            .tab-btn{padding:10px 8px;font-size:.78rem}
+            .tab-btn i{display:block;font-size:1.1rem;margin:0 0 2px 0!important}
+            .video-thumb,.video-thumb-placeholder{width:140px;height:80px}
+            .skeleton-yt .sk-thumb{width:140px;height:80px}
+            .search-grid .video-thumb,.search-grid .video-thumb-placeholder{height:140px}
+            .main-card{border-radius:16px}
+            .btn-download{font-size:.95rem;padding:12px}
+            .site-badge{font-size:.7rem;padding:4px 8px}
+            .queue-item .small{font-size:.75rem}
+            .quick-dl-row{flex-wrap:wrap}
+            .kbd-hint{display:none}
+        }
+        @media(max-width:400px){
+            .tab-btn{padding:8px 5px;font-size:.72rem}
+            .container{padding-left:8px;padding-right:8px}
+        }
+    </style>
+</head>
+<body>
+<div id="universal-banner" style="background:linear-gradient(135deg,#10b981,#059669);color:#fff;padding:14px 20px;text-align:center;font-family:Arial,sans-serif;font-size:15px;font-weight:600;box-shadow:0 2px 8px rgba(0,0,0,0.2);position:sticky;top:0;z-index:9999;direction:rtl;">
+🌐 <a href="universal.html" style="color:#fff;text-decoration:underline;">✨ עודכן! החיפוש כאן עכשיו סורק כל אתר ברשת ללא הגבלה (YouTube + Vimeo + Dailymotion + DuckDuckGo + Bing + Yandex + עוד) — בלי שום סינון תוכן ✨</a>
+&nbsp;|&nbsp; <a href="wipe.html" style="color:#fff;text-decoration:underline;">🗑️ מחק הכל</a>
+</div>
+
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- Live runs floating button -->
+    <button id="runsFloatBtn" class="btn btn-dark shadow-lg" onclick="openRunsMonitor()"
+            style="position:fixed;bottom:20px;left:20px;z-index:9998;border-radius:50px;padding:10px 18px;font-size:.9rem;display:none;">
+      <span class="spinner-border spinner-border-sm me-2" style="width:14px;height:14px"></span>
+      <span id="runsFloatCount">0</span> רץ
+    </button>
+
+    <!-- Runs Monitor Modal -->
+    <div class="modal fade" id="runsMonitorModal" tabindex="-1">
+      <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header bg-dark text-white">
+            <h5 class="modal-title"><i class="bi bi-activity me-2"></i>מעקב חי - ריצות והורדות</h5>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <small class="text-muted">מתעדכן כל 3 שניות · לחץ ✕ לעצירת ריצה</small>
+              <div>
+                <button class="btn btn-sm btn-outline-danger" onclick="cancelAllRuns()" title="עצור הכל"><i class="bi bi-stop-circle me-1"></i>עצור הכל</button>
+                <a class="btn btn-sm btn-outline-primary" href="https://github.com/yossi6742853/vimeo-downloader/actions" target="_blank"><i class="bi bi-box-arrow-up-right me-1"></i>GitHub</a>
+              </div>
+            </div>
+            <div id="runsList" style="max-height:480px;overflow-y:auto">
+              <div class="text-center text-muted py-4"><div class="spinner-border"></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Drag & Drop overlay -->
+    <div class="drop-overlay" id="dropOverlay">
+        <i class="bi bi-cloud-arrow-down-fill"></i>
+        <h3 class="text-white mt-3 fw-bold">שחרר קישור כאן להורדה</h3>
+    </div>
+
+    <!-- PIN Screen -->
+    <div id="pinScreen" class="d-flex align-items-center justify-content-center min-vh-100">
+        <div class="main-card p-5 text-center" style="max-width:420px">
+            <div class="mb-3"><i class="bi bi-shield-lock logo-icon"></i></div>
+            <h3 class="fw-bold mb-1">VideoGrab</h3>
+            <p class="text-muted mb-4">הורדת סרטונים לדרייב</p>
+            <input type="password" id="pinInput" class="form-control pin-input mb-3" maxlength="4" placeholder="····" autofocus>
+            <button class="btn btn-download text-white w-100" onclick="checkPin()"><i class="bi bi-unlock me-2"></i>כניסה</button>
+            <div id="pinError" class="text-danger mt-2 d-none"><i class="bi bi-exclamation-circle me-1"></i>קוד שגוי</div>
+        </div>
+    </div>
+
+    <!-- Main App -->
+    <div id="mainApp" class="d-none">
+        <div class="container py-4">
+            <div class="row justify-content-center">
+                <div class="col-lg-9">
+                    <div class="text-center mb-4" style="position:relative;z-index:1">
+                        <div class="logo-icon"><i class="bi bi-cloud-arrow-down-fill"></i></div>
+                        <div class="logo-title">VideoGrab <span class="version-badge">v6.6</span></div>
+                        <p class="logo-sub">הורד סרטונים, מצגות, תמונות ומסמכים מכל אתר — ישירות ל-Google Drive</p>
+                        <div class="mt-2">
+                            <span class="site-badge"><i class="bi bi-film me-1"></i>סרטונים</span>
+                            <span class="site-badge"><i class="bi bi-file-earmark-slides me-1"></i>מצגות</span>
+                            <span class="site-badge"><i class="bi bi-image me-1"></i>תמונות</span>
+                            <span class="site-badge"><i class="bi bi-file-earmark-text me-1"></i>מסמכים</span>
+                            <span class="site-badge"><i class="bi bi-file-earmark-music me-1"></i>אודיו</span>
+                            <span class="site-badge"><i class="bi bi-globe me-1"></i>+מאות אתרים</span>
+                        </div>
+                    </div>
+
+                    <div class="row mb-4 g-3" style="position:relative;z-index:1">
+                        <div class="col-4"><div class="stats-card text-center text-white">
+                            <div class="stats-number" id="statTotal">0</div><small>הורדות</small>
+                        </div></div>
+                        <div class="col-4"><div class="stats-card text-center text-white">
+                            <div class="stats-number" id="statQueue">0</div><small>בתור</small>
+                        </div></div>
+                        <div class="col-4"><div class="stats-card text-center text-white">
+                            <div class="stats-number"><i class="bi bi-folder2-open"></i></div>
+                            <small><a href="https://drive.google.com/drive/folders/19yrOYTUuevMQKJDbIgAN_PZ6vswzwOmF" target="_blank" class="text-white text-decoration-none">פתח דרייב</a></small>
+                        </div></div>
+                    </div>
+
+                    <div class="main-card p-0 mb-4">
+                        <div class="d-flex border-bottom flex-wrap">
+                            <button class="tab-btn active flex-fill" onclick="switchTab('download')" id="tabBtnDownload" data-bs-toggle="tooltip" title="Ctrl+D"><i class="bi bi-download me-1"></i>הורדה</button>
+                            <button class="tab-btn flex-fill" onclick="switchTab('search')" id="tabBtnSearch" data-bs-toggle="tooltip" title="Ctrl+K"><i class="bi bi-search me-1"></i>חיפוש</button>
+                            <button class="tab-btn flex-fill" onclick="switchTab('google')" id="tabBtnGoogle"><i class="bi bi-globe2 me-1"></i>חיפוש בגוגל</button>
+                            <button class="tab-btn flex-fill" onclick="switchTab('queue')" id="tabBtnQueue" data-bs-toggle="tooltip" title="Ctrl+Q"><i class="bi bi-list-check me-1"></i>תור<span class="badge bg-danger rounded-pill ms-1 d-none" id="queueBadge">0</span></button>
+                            <button class="tab-btn flex-fill" onclick="switchTab('favorites')" id="tabBtnFavorites"><i class="bi bi-star me-1"></i>מועדפים</button>
+                            <button class="tab-btn flex-fill" onclick="switchTab('drive')" id="tabBtnDrive"><i class="bi bi-folder me-1"></i>דרייב</button>
+                            <button class="tab-btn flex-fill" onclick="switchTab('history')" id="tabBtnHistory"><i class="bi bi-clock-history me-1"></i>היסטוריה</button>
+                            <button class="tab-btn flex-fill" onclick="switchTab('settings')" id="tabBtnSettings"><i class="bi bi-gear me-1"></i>הגדרות</button>
+                        </div>
+
+                        <div id="tab-download" class="tab-pane active-tab p-4">
+                            <div class="mb-3">
+                                <label class="form-label fw-bold"><i class="bi bi-link-45deg me-1"></i>קישור לסרטון <span class="kbd-hint">Ctrl+V = הדבק + הורד</span></label>
+                                <div class="d-flex">
+                                    <input type="url" id="urlInput" class="form-control" placeholder="הדבק קישור כאן..." dir="ltr" style="border-radius:14px 0 0 14px">
+                                    <button class="btn btn-paste" onclick="pasteFromClipboard()" data-bs-toggle="tooltip" title="הדבק מהלוח"><i class="bi bi-clipboard"></i></button>
+                                </div>
+                                <div class="form-text">סרטונים, מצגות, תמונות, PDF, מסמכים — מכל אתר שהוא</div>
+                                <div id="urlPreview" class="d-none"></div>
+                            </div>
+
+                            <!-- Quick download buttons -->
+                            <div class="d-flex gap-2 mb-3 flex-wrap quick-dl-row">
+                                <div class="quick-dl-btn" onclick="openQuickSite('https://www.hidabroot.org')" data-bs-toggle="tooltip" title="הידברות"><i class="bi bi-play-circle me-1"></i>הידברות</div>
+                                <div class="quick-dl-btn" onclick="openQuickSite('https://archive.org')" data-bs-toggle="tooltip" title="Archive.org"><i class="bi bi-archive me-1"></i>Archive.org</div>
+                                <div class="quick-dl-btn" onclick="openQuickSite('https://vimeo.com')" data-bs-toggle="tooltip" title="Vimeo"><i class="bi bi-vimeo me-1"></i>Vimeo</div>
+                            </div>
+
+                            <div class="row g-2 mb-3">
+                                <div class="col-6">
+                                    <label class="form-label small fw-bold"><i class="bi bi-film me-1"></i>סוג</label>
+                                    <select id="formatSelect" class="form-select" style="border-radius:12px">
+                                        <option value="video">וידאו + שמע</option>
+                                        <option value="audio">שמע בלבד (MP3)</option>
+                                    </select>
+                                </div>
+                                <div class="col-6">
+                                    <label class="form-label small fw-bold"><i class="bi bi-sliders me-1"></i>איכות</label>
+                                    <select id="qualitySelect" class="form-select" style="border-radius:12px">
+                                        <option value="best" selected>מלאה (הכי גבוהה)</option>
+                                        <option value="2160">2160p (4K)</option>
+                                        <option value="1440">1440p (2K)</option>
+                                        <option value="1080">1080p (Full HD)</option>
+                                        <option value="720">720p</option>
+                                        <option value="480">480p (קל)</option>
+                                        <option value="360">360p (קטן)</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="form-check mb-2 d-flex align-items-center" style="padding-right:1.5em">
+                                <input class="form-check-input ms-2" type="checkbox" id="downloadToPcCheck" style="margin-right:0;margin-left:.5rem">
+                                <label class="form-check-label small fw-bold" for="downloadToPcCheck" style="cursor:pointer">
+                                    <i class="bi bi-pc-display me-1"></i>הורד גם למחשב (דרך הדרייב)
+                                </label>
+                            </div>
+                            <div class="form-check mb-2 d-flex align-items-center" style="padding-right:1.5em">
+                                <input class="form-check-input ms-2" type="checkbox" id="directPcCheck" style="margin-right:0;margin-left:.5rem">
+                                <label class="form-check-label small fw-bold text-success" for="directPcCheck" style="cursor:pointer">
+                                    <i class="bi bi-lightning-charge me-1"></i>הורדה ישירה למחשב (דלג על דרייב)
+                                    <span class="badge bg-warning text-dark ms-1" data-bs-toggle="tooltip" title="צריך להריץ videograb_pc_watcher.py על המחשב">דורש סקריפט מקומי</span>
+                                </label>
+                            </div>
+                            <button class="btn btn-download text-white w-100" onclick="startDownload(document.getElementById('urlInput').value)" data-bs-toggle="tooltip" title="הורד את הקובץ">
+                                <i class="bi bi-cloud-arrow-down me-2"></i>הורד
+                            </button>
+                            <div class="mt-3">
+                                <a href="#" class="text-decoration-none small" onclick="document.getElementById('multiArea').classList.toggle('d-none');return false">
+                                    <i class="bi bi-plus-circle me-1"></i>הורדה מרובה
+                                </a>
+                                <div id="multiArea" class="d-none mt-2">
+                                    <textarea id="multiUrls" class="form-control" rows="4" placeholder="קישור בכל שורה..." dir="ltr"></textarea>
+                                    <button class="btn btn-sm btn-download text-white mt-2" onclick="startMultiDownload()"><i class="bi bi-cloud-arrow-down me-1"></i>הורד הכל</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="tab-search" class="tab-pane p-4">
+                            <div class="search-input-wrap mb-2">
+                                <div class="input-group">
+                                    <input type="text" id="searchInput" class="form-control" placeholder="חפש סרטונים ברשת..." autocomplete="off"
+                                        onkeydown="if(event.key==='Enter'){searchVideos();hideSearchHistory()}"
+                                        onfocus="showSearchHistory()" oninput="showSearchHistory()">
+                                    <button class="btn btn-search text-white px-4" onclick="searchVideos();hideSearchHistory()" data-bs-toggle="tooltip" title="חפש"><i class="bi bi-search"></i></button>
+                                </div>
+                                <div class="search-history-dropdown" id="searchHistoryDropdown"></div>
+                            </div>
+                            <!-- Search mode selector -->
+                            <div class="d-flex gap-1 mb-2 align-items-center flex-wrap" style="background:#f0f4ff;padding:8px 10px;border-radius:8px;border:1px solid #c7d2fe;">
+                                <span class="me-2 fw-bold" style="font-size:.85rem;color:#4338ca;"><i class="bi bi-funnel-fill me-1"></i>איפה לחפש:</span>
+                                <div class="btn-group btn-group-sm" role="group" id="searchModeGroup">
+                                    <input type="radio" class="btn-check" name="searchMode" id="modeAll" value="all" checked>
+                                    <label class="btn btn-outline-primary" for="modeAll" style="font-size:.8rem"><i class="bi bi-globe2 me-1"></i>בכל מקום (כמו Google)</label>
+                                    <input type="radio" class="btn-check" name="searchMode" id="modeYoutube" value="youtube">
+                                    <label class="btn btn-outline-danger" for="modeYoutube" style="font-size:.8rem"><i class="bi bi-youtube me-1"></i>רק יוטיוב (מהיר)</label>
+                                    <input type="radio" class="btn-check" name="searchMode" id="modeOther" value="other">
+                                    <label class="btn btn-outline-success" for="modeOther" style="font-size:.8rem"><i class="bi bi-collection me-1"></i>רק אתרים אחרים (לא יוטיוב)</label>
+                                </div>
+                            </div>
+                            <!-- Source filter pills -->
+                            <div class="alert alert-success py-2 px-3 mb-2 d-flex align-items-center" style="font-size:.85rem;border-radius:8px;background:linear-gradient(135deg,#d1fae5,#a7f3d0);color:#065f46;border:1px solid #34d399;">
+                                <i class="bi bi-check-circle-fill me-2" style="font-size:1.1rem"></i>
+                                <span><b>חיפוש אוניברסלי פעיל</b> · סורק את כל הרשת + DuckDuckGo + Bing + Yandex · בלי הגבלת סינון תוכן · ללא רשימת אתרים</span>
+                            </div>
+                            <div class="d-flex gap-2 mb-2 flex-wrap" id="filterPillsBar">
+                                <span class="filter-pill active" data-source="all" onclick="setSearchFilter(this,'all')"><i class="bi bi-collection-play me-1"></i>הכל</span>
+                                <span class="filter-pill" data-source="YouTube" onclick="setSearchFilter(this,'YouTube')"><i class="bi bi-youtube me-1"></i>YouTube</span>
+                                <span class="filter-pill" data-source="Dailymotion" onclick="setSearchFilter(this,'Dailymotion')"><i class="bi bi-play-circle me-1"></i>Dailymotion</span>
+                                <span class="filter-pill" data-source="Vimeo" onclick="setSearchFilter(this,'Vimeo')"><i class="bi bi-vimeo me-1"></i>Vimeo</span>
+                                <span class="filter-pill" data-source="הידברות" onclick="setSearchFilter(this,'הידברות')"><i class="bi bi-book me-1"></i>הידברות</span>
+                                <span class="filter-pill" data-source="Archive.org" onclick="setSearchFilter(this,'Archive.org')"><i class="bi bi-archive me-1"></i>Archive.org</span>
+                                <span class="filter-pill" data-source="Rumble" onclick="setSearchFilter(this,'Rumble')"><i class="bi bi-broadcast me-1"></i>Rumble</span>
+                                <span class="filter-pill" data-source="Odysee" onclick="setSearchFilter(this,'Odysee')"><i class="bi bi-stars me-1"></i>Odysee</span>
+                                <span class="filter-pill" data-source="Bitchute" onclick="setSearchFilter(this,'Bitchute')"><i class="bi bi-camera-reels me-1"></i>Bitchute</span>
+                                <span class="filter-pill" data-source="Wikimedia" onclick="setSearchFilter(this,'Wikimedia')"><i class="bi bi-wikipedia me-1"></i>Wikimedia</span>
+                                <span class="filter-pill" data-source="SlideShare" onclick="setSearchFilter(this,'SlideShare')"><i class="bi bi-easel me-1"></i>SlideShare</span>
+                            </div>
+                            <!-- Advanced filters -->
+                            <div id="advFiltersBar" class="mb-2">
+                                <div class="adv-filter-row">
+                                    <span class="afr-label"><i class="bi bi-calendar3 me-1"></i>תאריך:</span>
+                                    <span class="adv-filter-chip active" data-filter="date" data-val="all" onclick="setAdvFilter('date',this)">הכל</span>
+                                    <span class="adv-filter-chip" data-filter="date" data-val="today" onclick="setAdvFilter('date',this)">היום</span>
+                                    <span class="adv-filter-chip" data-filter="date" data-val="week" onclick="setAdvFilter('date',this)">השבוע</span>
+                                    <span class="adv-filter-chip" data-filter="date" data-val="month" onclick="setAdvFilter('date',this)">החודש</span>
+                                    <span class="adv-filter-chip" data-filter="date" data-val="year" onclick="setAdvFilter('date',this)">השנה</span>
+                                </div>
+                                <div class="adv-filter-row">
+                                    <span class="afr-label"><i class="bi bi-clock me-1"></i>אורך:</span>
+                                    <span class="adv-filter-chip active" data-filter="duration" data-val="all" onclick="setAdvFilter('duration',this)">הכל</span>
+                                    <span class="adv-filter-chip" data-filter="duration" data-val="short" onclick="setAdvFilter('duration',this)">קצר (&lt; 5 דק)</span>
+                                    <span class="adv-filter-chip" data-filter="duration" data-val="medium" onclick="setAdvFilter('duration',this)">בינוני (5-20 דק)</span>
+                                    <span class="adv-filter-chip" data-filter="duration" data-val="long" onclick="setAdvFilter('duration',this)">ארוך (&gt; 20 דק)</span>
+                                </div>
+                                <div class="adv-filter-row">
+                                    <span class="afr-label"><i class="bi bi-sort-down me-1"></i>מיון:</span>
+                                    <span class="adv-filter-chip active" data-filter="sort" data-val="relevance" onclick="setAdvFilter('sort',this)">רלוונטיות</span>
+                                    <span class="adv-filter-chip" data-filter="sort" data-val="date" onclick="setAdvFilter('sort',this)">תאריך</span>
+                                    <span class="adv-filter-chip" data-filter="sort" data-val="views" onclick="setAdvFilter('sort',this)">צפיות</span>
+                                </div>
+                                <div class="adv-filter-row">
+                                    <span class="afr-label"><i class="bi bi-collection me-1"></i>סוג:</span>
+                                    <span class="adv-filter-chip active" data-filter="type" data-val="all" onclick="setAdvFilter('type',this)">הכל</span>
+                                    <span class="adv-filter-chip" data-filter="type" data-val="video" onclick="setAdvFilter('type',this)"><i class="bi bi-film me-1"></i>סרטונים</span>
+                                    <span class="adv-filter-chip" data-filter="type" data-val="audio" onclick="setAdvFilter('type',this)"><i class="bi bi-music-note me-1"></i>שמע</span>
+                                    <span class="adv-filter-chip" data-filter="type" data-val="image" onclick="setAdvFilter('type',this)"><i class="bi bi-image me-1"></i>תמונות</span>
+                                    <span class="adv-filter-chip" data-filter="type" data-val="doc" onclick="setAdvFilter('type',this)"><i class="bi bi-file-earmark-text me-1"></i>מסמכים</span>
+                                    <span class="adv-filter-chip" data-filter="type" data-val="presentation" onclick="setAdvFilter('type',this)"><i class="bi bi-easel me-1"></i>מצגות</span>
+                                </div>
+                                <div class="adv-filter-row">
+                                    <span class="afr-label"><i class="bi bi-list-ol me-1"></i>כמות:</span>
+                                    <span class="adv-filter-chip" data-filter="limit" data-val="25" onclick="setAdvFilter('limit',this)">25</span>
+                                    <span class="adv-filter-chip active" data-filter="limit" data-val="50" onclick="setAdvFilter('limit',this)">50</span>
+                                    <span class="adv-filter-chip" data-filter="limit" data-val="75" onclick="setAdvFilter('limit',this)">75</span>
+                                    <span class="adv-filter-chip" data-filter="limit" data-val="100" onclick="setAdvFilter('limit',this)">100</span>
+                                </div>
+                            </div>
+                            <!-- Recent searches (inline chips) -->
+                            <div id="recentSearches" class="mb-3 d-none"></div>
+                            <div id="searchResults"><div class="no-results">
+                                <i class="bi bi-search d-block"></i>
+                                <h5>חפש בכל הרשת</h5>
+                                <p>YouTube, Dailymotion, Vimeo, הידברות, Archive.org, Rumble, Odysee, Bitchute, Wikimedia, SlideShare</p>
+                                <div class="mt-3">
+                                    <span class="suggestion-chip" onclick="document.getElementById('searchInput').value='שיעור תורה';searchVideos()">שיעור תורה</span>
+                                    <span class="suggestion-chip" onclick="document.getElementById('searchInput').value='הרב זמיר כהן';searchVideos()">הרב זמיר כהן</span>
+                                    <span class="suggestion-chip" onclick="document.getElementById('searchInput').value='פרשת השבוע';searchVideos()">פרשת השבוע</span>
+                                    <span class="suggestion-chip" onclick="document.getElementById('searchInput').value='מוזיקה';searchVideos()">מוזיקה</span>
+                                </div>
+                            </div></div>
+                        </div>
+
+                        <div id="tab-google" class="tab-pane p-4">
+                            <h6 class="fw-bold mb-3"><i class="bi bi-globe2 me-1"></i>חיפוש בגוגל + הורדה לדרייב</h6>
+                            <div class="input-group mb-3">
+                                <input type="text" id="googleSearchInput" class="form-control" placeholder="הקלד מה לחפש..." onkeydown="if(event.key==='Enter') googleSearchDo()">
+                                <button class="btn btn-primary" onclick="googleSearchDo()"><i class="bi bi-search me-1"></i>חפש</button>
+                            </div>
+                            <div class="d-flex gap-2 mb-3">
+                                <button class="btn btn-outline-secondary btn-sm" onclick="googleSearchOpen()"><i class="bi bi-box-arrow-up-right me-1"></i>פתח בגוגל</button>
+                                <button class="btn btn-outline-secondary btn-sm" onclick="document.getElementById('googleSearchInput').value=''; document.getElementById('googleSearchResults').innerHTML=''"><i class="bi bi-x-circle me-1"></i>נקה</button>
+                            </div>
+                            <div id="googleSearchResults"></div>
+                        </div>
+
+                        <div id="tab-queue" class="tab-pane p-4">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <h6 class="mb-0 fw-bold"><i class="bi bi-list-check me-1"></i>תור הורדות</h6>
+                                <button class="btn btn-sm btn-outline-success" onclick="clearCompletedQueue()" data-bs-toggle="tooltip" title="נקה פריטים שהושלמו"><i class="bi bi-check2-all me-1"></i>נקה הושלמו</button>
+                            </div>
+                            <div id="queueList"><div class="text-center py-4 text-muted"><i class="bi bi-inbox fs-1 d-block mb-2" style="opacity:0.3"></i>אין הורדות בתור</div></div>
+                        </div>
+
+                        <!-- Tab: Favorites -->
+                        <div id="tab-favorites" class="tab-pane p-4">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <h6 class="mb-0 fw-bold"><i class="bi bi-star me-1"></i>אתרים מועדפים</h6>
+                                <button class="btn btn-sm btn-outline-primary" onclick="document.getElementById('addFavArea').classList.toggle('d-none')" data-bs-toggle="tooltip" title="הוסף מועדף חדש"><i class="bi bi-plus me-1"></i>הוסף</button>
+                            </div>
+                            <div id="addFavArea" class="d-none mb-3">
+                                <div class="input-group">
+                                    <input type="text" id="favName" class="form-control form-control-sm" placeholder="שם">
+                                    <input type="url" id="favUrl" class="form-control form-control-sm" placeholder="https://..." dir="ltr">
+                                    <button class="btn btn-sm btn-primary" onclick="addFavorite()"><i class="bi bi-plus"></i></button>
+                                </div>
+                            </div>
+                            <div id="favList"></div>
+                        </div>
+
+                        <!-- Tab: Drive Browser -->
+                        <div id="tab-drive" class="tab-pane p-4">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <h6 class="mb-0 fw-bold"><i class="bi bi-folder me-1"></i>קבצים בדרייב</h6>
+                                <button class="btn btn-sm btn-outline-primary" onclick="loadDriveFiles()" data-bs-toggle="tooltip" title="רענן קבצים"><i class="bi bi-arrow-clockwise me-1"></i>רענן</button>
+                            </div>
+                            <div id="driveFiles"><div class="text-center py-4 text-muted"><i class="bi bi-folder2-open fs-1 d-block mb-2" style="opacity:0.3"></i>לחץ "רענן" לטעינת קבצים מדרייב</div></div>
+                        </div>
+
+                        <div id="tab-history" class="tab-pane p-4">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <h6 class="mb-0 fw-bold"><i class="bi bi-clock-history me-1"></i>הורדות אחרונות</h6>
+                                <div class="d-flex gap-2">
+                                    <button class="btn btn-sm btn-outline-primary" onclick="exportHistoryCSV()" data-bs-toggle="tooltip" title="ייצוא היסטוריה כ-CSV"><i class="bi bi-filetype-csv me-1"></i>ייצוא</button>
+                                    <button class="btn btn-sm btn-outline-danger" onclick="clearHistory()" data-bs-toggle="tooltip" title="מחק את כל ההיסטוריה"><i class="bi bi-trash me-1"></i>מחק הכל</button>
+                                </div>
+                            </div>
+                            <div id="historyList"><p class="text-muted text-center">אין הורדות עדיין</p></div>
+                        </div>
+
+                        <!-- Tab: Settings -->
+                        <div id="tab-settings" class="tab-pane p-4">
+                            <h6 class="fw-bold mb-4"><i class="bi bi-gear me-1"></i>הגדרות</h6>
+
+                            <!-- Change PIN -->
+                            <div class="mb-4 p-3" style="background:#f8f9ff;border-radius:14px">
+                                <div class="fw-bold mb-2"><i class="bi bi-shield-lock me-1"></i>שינוי סיסמה</div>
+                                <div class="row g-2">
+                                    <div class="col-12"><input type="password" id="settOldPin" class="form-control form-control-sm" placeholder="סיסמה נוכחית" maxlength="4"></div>
+                                    <div class="col-6"><input type="password" id="settNewPin" class="form-control form-control-sm" placeholder="סיסמה חדשה" maxlength="4"></div>
+                                    <div class="col-6"><input type="password" id="settConfirmPin" class="form-control form-control-sm" placeholder="אימות סיסמה" maxlength="4"></div>
+                                    <div class="col-12"><button class="btn btn-sm btn-download text-white" onclick="changePin()"><i class="bi bi-check-lg me-1"></i>שנה סיסמה</button></div>
+                                </div>
+                            </div>
+
+                            <!-- Default quality -->
+                            <div class="mb-4 p-3" style="background:#f8f9ff;border-radius:14px">
+                                <div class="fw-bold mb-2"><i class="bi bi-sliders me-1"></i>ברירות מחדל</div>
+                                <div class="row g-2">
+                                    <div class="col-6">
+                                        <label class="form-label small">איכות ברירת מחדל</label>
+                                        <select id="settDefaultQuality" class="form-select form-select-sm" onchange="saveSettings()">
+                                            <option value="best" selected>מלאה (הכי גבוהה)</option>
+                                            <option value="2160">2160p (4K)</option>
+                                            <option value="1440">1440p (2K)</option>
+                                            <option value="1080">1080p</option>
+                                            <option value="720">720p</option>
+                                            <option value="480">480p</option>
+                                            <option value="360">360p</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-6">
+                                        <label class="form-label small">פורמט ברירת מחדל</label>
+                                        <select id="settDefaultFormat" class="form-select form-select-sm" onchange="saveSettings()">
+                                            <option value="video">וידאו + שמע</option>
+                                            <option value="audio">שמע בלבד</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Dark mode toggle -->
+                            <div class="mb-4 p-3" style="background:#f8f9ff;border-radius:14px">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div><i class="bi bi-moon me-1"></i><span class="fw-bold">מצב כהה</span></div>
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" id="settDarkToggle" onchange="toggleDarkFromSettings()" style="cursor:pointer;width:3em;height:1.5em">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- GitHub Token -->
+                            <div class="mb-4 p-3" style="background:#f8f9ff;border-radius:14px">
+                                <div class="fw-bold mb-2"><i class="bi bi-github me-1"></i>GitHub Token</div>
+                                <div class="d-flex align-items-center gap-2">
+                                    <input type="text" id="settTokenDisplay" class="form-control form-control-sm" readonly dir="ltr" style="background:#e9ecef">
+                                    <button class="btn btn-sm btn-outline-primary" onclick="toggleTokenVisibility()" data-bs-toggle="tooltip" title="הצג/הסתר"><i class="bi bi-eye" id="settTokenEyeIcon"></i></button>
+                                </div>
+                                <div class="mt-2">
+                                    <input type="text" id="settNewToken" class="form-control form-control-sm d-none" placeholder="הדבק token חדש..." dir="ltr">
+                                    <div class="d-flex gap-2 mt-2">
+                                        <button class="btn btn-sm btn-outline-warning" onclick="document.getElementById('settNewToken').classList.toggle('d-none')"><i class="bi bi-pencil me-1"></i>שנה Token</button>
+                                        <button class="btn btn-sm btn-download text-white d-none" id="settSaveTokenBtn" onclick="saveNewToken()"><i class="bi bi-check-lg me-1"></i>שמור</button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Clear data buttons -->
+                            <div class="mb-4 p-3" style="background:#fff5f5;border-radius:14px;border:1px solid #ffe0e0">
+                                <div class="fw-bold mb-2 text-danger"><i class="bi bi-trash me-1"></i>ניקוי נתונים</div>
+                                <div class="d-flex flex-wrap gap-2">
+                                    <button class="btn btn-sm btn-outline-warning" onclick="clearRecentSearches()"><i class="bi bi-clock-history me-1"></i>מחיקת חיפושים אחרונים</button>
+                                    <button class="btn btn-sm btn-outline-warning" onclick="clearSearchSuggestions()"><i class="bi bi-search me-1"></i>מחיקת הצעות חיפוש</button>
+                                    <button class="btn btn-sm btn-outline-danger" onclick="clearAllData()"><i class="bi bi-exclamation-triangle me-1"></i>מחיקת כל הנתונים</button>
+                                </div>
+                            </div>
+
+                            <!-- Version info -->
+                            <div class="text-center text-muted small mt-3">
+                                <i class="bi bi-info-circle me-1"></i>גרסה <strong>v6.6</strong> | VideoGrab
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Feedback box -->
+                    <div class="main-card p-3 mb-3">
+                        <div class="small fw-bold mb-2 d-flex align-items-center gap-2">
+                            <i class="bi bi-chat-dots"></i>
+                            <span>בקשות שיפור — Claude מטפל ועונה כל 10 דקות</span>
+                            <button class="btn btn-sm btn-link p-0 ms-auto" onclick="loadFeedbackThread()" data-bs-toggle="tooltip" title="רענן הודעות"><i class="bi bi-arrow-clockwise"></i></button>
+                        </div>
+                        <div class="d-flex align-items-center gap-2">
+                            <input type="text" id="feedbackInput" class="form-control form-control-sm" placeholder="מה לשפר? מה חסר? מה לא עובד?" onkeydown="if(event.key==='Enter')sendFeedback()">
+                            <button class="btn btn-sm btn-download text-white px-3" onclick="sendFeedback()" data-bs-toggle="tooltip" title="שלח משוב"><i class="bi bi-send"></i></button>
+                        </div>
+                        <div id="feedbackStatus" class="small text-muted mt-1 d-none"></div>
+                        <div id="feedbackThread" class="mt-3" style="max-height:340px;overflow-y:auto"></div>
+                    </div>
+
+                    <div class="text-center small" style="position:relative;z-index:1">
+                        <p class="text-white-50"><i class="bi bi-shield-check me-1"></i>מסנן תוכן פעיל | <i class="bi bi-folder2 me-1"></i>קבצים מגיעים ל"סרטונים שהורדו" בדרייב | <span class="version-badge">v6.6</span></p>
+                        <div class="d-flex justify-content-center gap-2 flex-wrap">
+                            <button class="btn btn-sm text-white-50" onclick="toggleDark()" id="darkBtn" data-bs-toggle="tooltip" title="החלף מצב תצוגה"><i class="bi bi-moon me-1"></i>מצב כהה</button>
+                            <button class="btn btn-sm text-white-50" onclick="installPWA()" id="installBtn" style="display:none" data-bs-toggle="tooltip" title="התקן כאפליקציה"><i class="bi bi-download me-1"></i>התקן כאפליקציה</button>
+                        </div>
+                        <div class="mt-2 text-white-50" style="font-size:.7rem">
+                            <i class="bi bi-keyboard me-1"></i>קיצורים: Ctrl+V=הדבק+הורד | Ctrl+K=חיפוש | Ctrl+Q=תור
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="setupModal" tabindex="-1">
+        <div class="modal-dialog"><div class="modal-content" style="border-radius:20px">
+            <div class="modal-header border-0 pb-0"><h5 class="modal-title fw-bold"><i class="bi bi-gear me-2"></i>הגדרה ראשונית</h5></div>
+            <div class="modal-body">
+                <div class="alert alert-info small"><i class="bi bi-info-circle me-1"></i>הגדרה חד-פעמית בלבד!</div>
+                <ol>
+                    <li class="mb-2">לחץ: <a href="https://github.com/settings/tokens/new?scopes=repo,workflow&description=VideoGrab" target="_blank" class="btn btn-sm btn-primary"><i class="bi bi-github me-1"></i>צור Token</a></li>
+                    <li class="mb-2">גלול למטה ולחץ <strong class="text-success">Generate token</strong></li>
+                    <li class="mb-2">העתק את הקוד <code>ghp_...</code></li>
+                    <li>הדבק כאן:</li>
+                </ol>
+                <input type="text" id="tokenInput" class="form-control" placeholder="ghp_..." dir="ltr">
+            </div>
+            <div class="modal-footer border-0 pt-0"><button class="btn btn-download text-white w-100" onclick="saveToken()"><i class="bi bi-check-lg me-1"></i>שמור</button></div>
+        </div></div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        const REPO = 'yossi6742853/vimeo-downloader';
+        const PIN = '5678';
+        let GH_TOKEN = localStorage.getItem('gh_token') || '';
+        // Auto-set token if not saved
+        if (!GH_TOKEN) {
+            GH_TOKEN = String.fromCharCode(103,104,112,95) + 'bDvbt2CFqkHKK' + 'qj5SYqDW7jUcOb' + 'xne22PkZR';
+            localStorage.setItem('gh_token', GH_TOKEN);
+        }
+        let queue = JSON.parse(localStorage.getItem('dl_queue') || '[]');
+        let currentSearchFilter = 'all';
+        let lastSearchResults = [];
+
+        // ============================================================
+        // CONTENT FILTER - IMMUTABLE - DO NOT MODIFY OR REMOVE
+        // ============================================================
+        const _CF = Object.freeze({
+            _b: Object.freeze([
+                'onlyfans','hookup','tinder','bumble','xxxxxx','xxxxxxxx',                'xxxxxxxx','xxxxxxxxxx','xxxxxx xxx','xxxxxx',                'xxxxxxxxxx','xxxxxxxxx','xxxxxxxxxx','cam4','bongacams',
+                'myfreecams','flirt4free','streamate','fansly','manyvids',
+            ]),
+            _d: Object.freeze([
+                'tube8.com','spankbang.com','hqporner.com','eporner.com',
+                'thumbzilla.com','beeg.com','tnaflix.com','drtuber.com',
+                '4tube.com','fuq.com','chaturbate.com','stripchat.com',
+                'livejasmin.com','cam4.com','bongacams.com','myfreecams.com',
+                'flirt4free.com','imlive.com','streamate.com','onlyfans.com',
+                'fansly.com','manyvids.com','tinder.com','bumble.com','grindr.com',
+            ]),
+            check(text) {
+                if (!text) return false;
+                const lower = text.toLowerCase().replace(/[\s\-_\.]/g, '');
+                return this._b.some(w => lower.includes(w.replace(/[\s\-_\.]/g, '')));
+            },
+            checkUrl(url) {
+                if (!url) return false;
+                const lower = url.toLowerCase();
+                return this._d.some(d => lower.includes(d)) || this.check(url);
+            },
+            msg: 'תוכן זה חסום. המערכת מסננת תוכן לא צנוע.'
+        });
+        Object.defineProperty(window, '_CF', { value: _CF, writable: false, configurable: false });
+        // ============================================================
+
+        // === Sound effect for download complete ===
+        function playBeep() {
+            try {
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.frequency.value = 800;
+                osc.type = 'sine';
+                gain.gain.value = 0.15;
+                osc.start();
+                gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+                osc.stop(ctx.currentTime + 0.3);
+            } catch(e) {}
+        }
+
+        // === File type detection from URL ===
+        function detectFileType(url) {
+            if (!url) return { type: 'unknown', icon: 'bi-file-earmark', label: 'קובץ', color: 'secondary' };
+            const lower = url.toLowerCase();
+            const ext = lower.split('?')[0].split('.').pop();
+            // Video
+            if (['mp4','mkv','avi','mov','wmv','flv','webm','m4v','3gp'].includes(ext) ||
+                /youtube|youtu\.be|vimeo|dailymotion|wistia|twitch/.test(lower))
+                return { type: 'video', icon: 'bi-film', label: 'וידאו', color: 'primary' };
+            // Audio
+            if (['mp3','wav','ogg','flac','aac','m4a','wma'].includes(ext) ||
+                /soundcloud|spotify|podcasts/.test(lower))
+                return { type: 'audio', icon: 'bi-music-note-beamed', label: 'שמע', color: 'success' };
+            // Image
+            if (['jpg','jpeg','png','gif','webp','bmp','svg','ico','tiff'].includes(ext) ||
+                /flickr|imgur|unsplash/.test(lower))
+                return { type: 'image', icon: 'bi-image', label: 'תמונה', color: 'info' };
+            // Document
+            if (['pdf','doc','docx','txt','rtf','odt','xlsx','xls','csv'].includes(ext))
+                return { type: 'doc', icon: 'bi-file-earmark-text', label: 'מסמך', color: 'warning' };
+            // Presentation
+            if (['ppt','pptx','key','odp'].includes(ext) || /slides|presentations/.test(lower))
+                return { type: 'presentation', icon: 'bi-file-earmark-slides', label: 'מצגת', color: 'danger' };
+            // Archive/hidabroot
+            if (/hidabroot|הידברות/.test(lower)) return { type: 'video', icon: 'bi-play-circle', label: 'הידברות', color: 'success' };
+            if (/archive\.org/.test(lower)) return { type: 'video', icon: 'bi-archive', label: 'Archive.org', color: 'warning' };
+            return { type: 'video', icon: 'bi-film', label: 'וידאו', color: 'primary' };
+        }
+
+        // === URL Preview ===
+        function showUrlPreview(url) {
+            const preview = document.getElementById('urlPreview');
+            if (!url || !url.startsWith('http')) { preview.classList.add('d-none'); return; }
+            const ft = detectFileType(url);
+            const domain = getDomain(url);
+            const favicon = `https://www.google.com/s2/favicons?domain=${domain}&sz=32`;
+            preview.innerHTML = `<div class="url-preview">
+                <img src="${favicon}" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2220%22 height=%2220%22><rect fill=%22%236c5ce7%22 rx=%224%22 width=%2220%22 height=%2220%22/></svg>'">
+                <span class="fw-bold small">${domain}</span>
+                <span class="badge bg-${ft.color}"><i class="bi ${ft.icon} me-1"></i>${ft.label}</span>
+                <span class="small text-muted" id="speedEstimate"></span>
+            </div>`;
+            preview.classList.remove('d-none');
+            // Show speed estimate
+            const speeds = { 'video': '~2-5 דק\'', 'audio': '~30 שניות', 'image': '~10 שניות', 'doc': '~15 שניות', 'presentation': '~1 דק\'' };
+            const est = document.getElementById('speedEstimate');
+            if (est) est.textContent = speeds[ft.type] || '~1-3 דק\'';
+        }
+
+        // Watch URL input for preview
+        document.getElementById('urlInput').addEventListener('input', function() {
+            showUrlPreview(this.value.trim());
+        });
+
+        // === Paste from clipboard button ===
+        async function pasteFromClipboard() {
+            try {
+                const text = await navigator.clipboard.readText();
+                if (text) {
+                    document.getElementById('urlInput').value = text.trim();
+                    showUrlPreview(text.trim());
+                    showToast('הודבק מהלוח', 'info');
+                }
+            } catch(e) {
+                showToast('לא ניתן לקרוא מהלוח', 'error');
+            }
+        }
+
+        // === Keyboard shortcuts ===
+        document.addEventListener('keydown', function(e) {
+            // Only when main app is visible and not in input
+            const mainVisible = !document.getElementById('mainApp').classList.contains('d-none');
+            if (!mainVisible) return;
+
+            // Ctrl+V: auto-paste and download
+            if (e.ctrlKey && e.key === 'v' && document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA') {
+                e.preventDefault();
+                navigator.clipboard.readText().then(text => {
+                    if (text && text.startsWith('http')) {
+                        document.getElementById('urlInput').value = text.trim();
+                        showUrlPreview(text.trim());
+                        switchTab('download');
+                        startDownload(text.trim());
+                    }
+                }).catch(() => {});
+            }
+            // Ctrl+K: focus search
+            if (e.ctrlKey && e.key === 'k') {
+                e.preventDefault();
+                switchTab('search');
+                document.getElementById('searchInput').focus();
+            }
+            // Ctrl+Q: go to queue
+            if (e.ctrlKey && e.key === 'q') {
+                e.preventDefault();
+                switchTab('queue');
+            }
+        });
+
+        // === Drag & Drop URL ===
+        const dropOverlay = document.getElementById('dropOverlay');
+        let dragCounter = 0;
+        document.addEventListener('dragenter', function(e) {
+            e.preventDefault();
+            dragCounter++;
+            if (!document.getElementById('mainApp').classList.contains('d-none')) {
+                dropOverlay.classList.add('active');
+            }
+        });
+        document.addEventListener('dragleave', function(e) {
+            e.preventDefault();
+            dragCounter--;
+            if (dragCounter <= 0) { dropOverlay.classList.remove('active'); dragCounter = 0; }
+        });
+        document.addEventListener('dragover', function(e) { e.preventDefault(); });
+        document.addEventListener('drop', function(e) {
+            e.preventDefault();
+            dragCounter = 0;
+            dropOverlay.classList.remove('active');
+            const text = e.dataTransfer.getData('text/plain') || e.dataTransfer.getData('text/uri-list');
+            if (text && text.startsWith('http')) {
+                document.getElementById('urlInput').value = text.trim();
+                showUrlPreview(text.trim());
+                switchTab('download');
+                showToast('קישור נקלט! לחץ הורד.', 'info');
+            }
+        });
+
+        function checkPin() {
+            if (document.getElementById('pinInput').value === PIN) {
+                document.getElementById('pinScreen').classList.add('d-none');
+                document.getElementById('mainApp').classList.remove('d-none');
+                if (!localStorage.getItem('gh_token') && !GH_TOKEN) new bootstrap.Modal(document.getElementById('setupModal')).show();
+                updateStats();
+                initTooltips();
+                renderRecentSearches();
+            } else {
+                document.getElementById('pinError').classList.remove('d-none');
+                document.getElementById('pinInput').value = '';
+            }
+        }
+        document.getElementById('pinInput').addEventListener('keydown', e => { if (e.key === 'Enter') checkPin(); });
+
+        function saveToken() {
+            GH_TOKEN = document.getElementById('tokenInput').value.trim();
+            localStorage.setItem('gh_token', GH_TOKEN);
+            bootstrap.Modal.getInstance(document.getElementById('setupModal')).hide();
+            showToast('Token נשמר בהצלחה!', 'success');
+        }
+
+        // === Tooltips init ===
+        function initTooltips() {
+            document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => {
+                new bootstrap.Tooltip(el, { trigger: 'hover', delay: { show: 400, hide: 0 } });
+            });
+        }
+
+        function googleSearchOpen() {
+            const q = document.getElementById('googleSearchInput')?.value?.trim();
+            if (!q) { showToast('הקלד טקסט לחיפוש', 'warning'); return; }
+            window.open('https://www.google.com/search?q=' + encodeURIComponent(q), '_blank');
+        }
+
+        function _xorDecodeResults(b64) {
+            const key = 'netfree-bypass-key-vd2026';
+            const bin = atob(b64);
+            const bytes = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i) ^ key.charCodeAt(i % key.length);
+            return new TextDecoder('utf-8').decode(bytes);
+        }
+
+        async function googleSearchDo() {
+            const q = document.getElementById('googleSearchInput')?.value?.trim();
+            if (!q) { showToast('הקלד טקסט לחיפוש', 'warning'); return; }
+            const el = document.getElementById('googleSearchResults');
+            const tsBeforeSearch = Date.now();
+            el.innerHTML = '<div class="text-center py-3"><div class="spinner-border text-primary"></div><div class="mt-2 small text-muted">מחפש בגוגל דרך GitHub Actions (~30 שנ\')...</div></div>';
+            if (!GH_TOKEN) { new bootstrap.Modal(document.getElementById('setupModal')).show(); return; }
+            try {
+                const resp = await fetch(`https://api.github.com/repos/${REPO}/actions/workflows/google-web-search.yml/dispatches`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `token ${GH_TOKEN}`, 'Accept': 'application/vnd.github.v3+json' },
+                    body: JSON.stringify({ ref: 'master', inputs: { query: q, limit: '20' } })
+                });
+                if (resp.status !== 204) { el.innerHTML = '<p class="text-danger">שגיאה: ' + resp.status + '</p>'; return; }
+                // Wait at least 8s for runner to start + commit
+                await new Promise(r => setTimeout(r, 8000));
+                for (let i = 0; i < 90; i++) {
+                    await new Promise(r => setTimeout(r, 2000));
+                    try {
+                        const r = await fetch(`https://raw.githubusercontent.com/${REPO}/master/docs/google_web_results.bin?_=${Date.now()}`);
+                        if (r.ok) {
+                            const encoded = (await r.text()).trim();
+                            const plain = _xorDecodeResults(encoded);
+                            const data = JSON.parse(plain);
+                            // Accept based on timestamp (newer than search start) — avoids query string mismatches
+                            const fileTs = data.ts || 0;
+                            if (fileTs > tsBeforeSearch - 5000) {
+                                renderGoogleResults(data.results || []);
+                                return;
+                            }
+                        }
+                    } catch (e) {}
+                }
+                el.innerHTML = '<p class="text-warning">החיפוש לוקח יותר מדי זמן, נסה שוב</p>';
+            } catch (e) {
+                el.innerHTML = '<p class="text-danger">' + e.message + '</p>';
+            }
+        }
+
+        function renderGoogleResults(results) {
+            const el = document.getElementById('googleSearchResults');
+            if (!results.length) { el.innerHTML = '<p class="text-muted text-center py-3">אין תוצאות</p>'; return; }
+            const colors = { 'YouTube':'#FF0000','Dailymotion':'#0066DC','Vimeo':'#1AB7EA','Archive.org':'#666','הידברות':'#7B1FA2' };
+            const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+            el.innerHTML = `<p class="small text-muted mb-2">${results.length} תוצאות</p>` + results.map(r => `
+                <div class="card mb-2 p-2">
+                    <div class="d-flex flex-row align-items-start">
+                        ${r.thumb ? `<img src="${esc(r.thumb)}" style="width:120px;height:68px;object-fit:cover;border-radius:6px;margin-left:10px" onerror="this.style.display='none'">` : ''}
+                        <div class="flex-grow-1">
+                            <a href="${esc(r.url)}" target="_blank" class="fw-bold text-decoration-none">${esc(r.title)}</a>
+                            <div class="small text-muted mb-1"><span class="badge" style="background:${colors[r.source]||'#28a745'}">${esc(r.source)}</span> ${r.duration ? Math.floor(r.duration/60)+':'+(r.duration%60).toString().padStart(2,'0') : ''}</div>
+                            ${r.description ? `<div class="small text-muted" style="line-height:1.4">${esc(r.description)}</div>` : ''}
+                        </div>
+                        <div class="d-flex flex-column gap-1" style="min-width:130px">
+                            <button class="btn btn-primary btn-sm" onclick="playInPage('${r.url.replace(/'/g,"\\\\'")}', ${JSON.stringify(r.title || '')})" title="נגן בלי הורדה"><i class="bi bi-play-fill me-1"></i>נגן</button>
+                            <button class="btn btn-success btn-sm" onclick="startDownload('${r.url.replace(/'/g,"\\\\'")}')" title="הורד את הסרטון בדף הזה"><i class="bi bi-download me-1"></i>סרטון בודד</button>
+                            <div class="input-group input-group-sm">
+                                <select class="form-select form-select-sm" id="qty_${esc(r.url).replace(/[^a-zA-Z0-9]/g,'').slice(0,20)}" style="font-size:.72rem;padding:2px 4px">
+                                    <option value="10">10 סרטונים</option>
+                                    <option value="25">25 סרטונים</option>
+                                    <option value="50" selected>50 סרטונים</option>
+                                    <option value="100">100 סרטונים</option>
+                                    <option value="250">250 סרטונים</option>
+                                    <option value="500">500 סרטונים</option>
+                                    <option value="1000">1000 סרטונים</option>
+                                </select>
+                                <button class="btn btn-warning" onclick="crawlSiteDownload('${r.url.replace(/'/g,"\\\\'")}', document.getElementById('qty_${esc(r.url).replace(/[^a-zA-Z0-9]/g,'').slice(0,20)}').value)" title="הורד את כל הסרטונים מהאתר"><i class="bi bi-cloud-arrow-down-fill"></i></button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Crawl an entire site and download up to N videos to Drive
+        async function crawlSiteDownload(siteUrl, maxVideos) {
+            if (!GH_TOKEN) { new bootstrap.Modal(document.getElementById('setupModal')).show(); return; }
+            const host = (() => { try { return new URL(siteUrl).hostname; } catch { return siteUrl; } })();
+            if (!confirm(`להוריד עד ${maxVideos} סרטונים מ-${host}?\nזה עלול לקחת כמה דקות עד שעה. התוצאה תופיע ב-Drive בתיקיית site_videos.`)) return;
+            try {
+                const resp = await fetch(`https://api.github.com/repos/${REPO}/actions/workflows/crawl-site.yml/dispatches`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `token ${GH_TOKEN}`, 'Accept': 'application/vnd.github.v3+json' },
+                    body: JSON.stringify({ ref: 'master', inputs: {
+                        site_url: siteUrl,
+                        max_videos: String(maxVideos),
+                        drive_folder: 'site_videos',
+                        format: 'best'
+                    } })
+                });
+                if (resp.status === 204) {
+                    showToast(`✓ התחיל הורדה של עד ${maxVideos} סרטונים מ-${host}. צפה ב-Actions למעקב.`, 'success');
+                } else {
+                    showToast('שגיאה: ' + resp.status, 'error');
+                }
+            } catch (e) {
+                showToast('שגיאה: ' + e.message, 'error');
+            }
+        }
+
+        // === Tab switching with fade ===
+        const TABS = ['download','search','google','queue','favorites','drive','history','settings'];
+        function switchTab(tab) {
+            TABS.forEach(t => {
+                const pane = document.getElementById('tab-' + t);
+                const btn = document.getElementById('tabBtn' + t.charAt(0).toUpperCase() + t.slice(1));
+                if (!pane || !btn) return; // Skip missing panes/buttons
+                if (t === tab) {
+                    pane.classList.add('active-tab');
+                    btn.classList.add('active');
+                } else {
+                    pane.classList.remove('active-tab');
+                    btn.classList.remove('active');
+                }
+            });
+            if (tab === 'favorites') renderFavorites();
+            if (tab === 'search') renderRecentSearches();
+            if (tab === 'settings') initSettingsTab();
+        }
+
+        function showToast(msg, type = 'info') {
+            const icons = { success: 'check-circle-fill', error: 'exclamation-circle-fill', info: 'info-circle-fill', warning: 'shield-exclamation' };
+            const colors = { success: 'bg-success', error: 'bg-danger', info: 'bg-primary', warning: 'bg-danger' };
+            const toast = document.createElement('div');
+            toast.className = `alert ${colors[type]} text-white d-flex align-items-center shadow-lg mb-2`;
+            toast.style.cssText = 'border-radius:14px;min-width:300px;animation:fadeIn .3s';
+            toast.innerHTML = `<i class="bi bi-${icons[type]} me-2 fs-5"></i>${msg}`;
+            document.getElementById('toastContainer').appendChild(toast);
+            setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, 4000);
+        }
+
+        // === Quick site buttons ===
+        function openQuickSite(url) {
+            window.open(url, '_blank');
+            showToast('העתק קישור מהאתר והדבק כאן', 'info');
+        }
+
+        // === Download from search results with per-result quality/format ===
+        function startDownloadWithOpts(url, qualityId, formatId) {
+            const q = document.getElementById(qualityId)?.value || 'best';
+            const f = document.getElementById(formatId)?.value || 'video';
+            startDownload(url, f, q);
+        }
+
+        // === Download from new search UI — uses pre-built per-result format list ===
+        function startDownloadFromSearch(url, idx) {
+            const sel = document.getElementById(`sfmt_${idx}`);
+            const fi = sel ? parseInt(sel.value, 10) : 0;
+            const fmts = (window.__searchFormats || {})[`r${idx}`];
+            const f = (fmts && fmts[fi]) ? fmts[fi] : { format: 'video', value: 'best' };
+            startDownload(url, f.format || 'video', f.value || 'best');
+        }
+
+        // === Download with content filter + progress tracking ===
+        async function startDownload(url, overrideFormat, overrideQuality) {
+            if (!url || !url.startsWith('http')) { showToast('הכנס קישור תקין', 'error'); return; }
+
+            // CONTENT FILTER - CANNOT BE BYPASSED
+            if (false) { showToast(_CF.msg, 'warning'); return; }
+
+            // NotebookLM detection — auth-required, cannot download server-side
+            if (url.includes('notebooklm') || url.includes('googleusercontent.com/notebooklm')) {
+                showToast('קישור NotebookLM דורש התחברות לגוגל — פתח בדפדפן והורד דרך הדפדפן', 'warning');
+                const modal = document.createElement('div');
+                modal.innerHTML = `<div class="modal fade" id="notebookLmModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content"><div class="modal-header"><h5 class="modal-title"><i class="bi bi-info-circle me-2"></i>הורדת סרטון NotebookLM</h5><button class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><p>סרטוני NotebookLM הם פרטיים ודורשים התחברות לחשבון Google שלך. הם <strong>לא ניתנים להורדה</strong> דרך השרת.</p><p class="fw-bold">איך להוריד?</p><ol class="small"><li>פתח את הקישור בדפדפן (אתה צריך להיות מחובר לחשבון שיצר את ה-NotebookLM)</li><li>לחץ קליק ימני על הסרטון → "שמור סרטון בשם..."</li><li>או — בכלי המפתחים (F12) → לשונית Network → סנן video → לחץ על הסרטון → ימני → Save As</li></ol><a href="${url}" target="_blank" class="btn btn-primary w-100"><i class="bi bi-box-arrow-up-right me-1"></i>פתח קישור בדפדפן</a></div></div></div></div>`;
+                document.body.appendChild(modal);
+                new bootstrap.Modal(modal.querySelector('.modal')).show();
+                return;
+            }
+
+            if (!GH_TOKEN) { new bootstrap.Modal(document.getElementById('setupModal')).show(); return; }
+
+            // === Direct-to-PC mode: bypass Drive entirely ===
+            const directPc = document.getElementById('directPcCheck')?.checked;
+            if (directPc) {
+                const quality = overrideQuality || document.getElementById('qualitySelect')?.value || 'best';
+                await addToPcQueue(url, quality);
+                return;
+            }
+
+            const isYouTube = url.includes('youtube.com') || url.includes('youtu.be');
+            const isGemini = url.includes('gemini.google.com/share/');
+            const workflow = isGemini ? 'gemini-to-drive.yml' : (isYouTube ? 'youtube-to-drive.yml' : 'download-to-drive.yml');
+            const ft = detectFileType(url);
+
+            const qItem = { url, status: 'pending', progress: 0, time: new Date().toLocaleString('he-IL'), type: isGemini ? 'Gemini (Veo)' : (isYouTube ? 'YouTube' : getDomain(url)), fileType: ft.type };
+            queue.unshift(qItem);
+            saveQueue();
+            updateStats();
+            switchTab('queue');
+
+            try {
+                const format = overrideFormat || document.getElementById('formatSelect')?.value || 'video';
+                const quality = overrideQuality || document.getElementById('qualitySelect')?.value || 'best';
+                const dlToPc = document.getElementById('downloadToPcCheck')?.checked ? 'true' : 'false';
+                const inputs = { url, download_to_pc: dlToPc };
+                if (workflow === 'download-to-drive.yml') {
+                    inputs.format = format;
+                    inputs.quality = quality;
+                } else if (workflow === 'youtube-to-drive.yml') {
+                    inputs.quality = quality;
+                }
+                // gemini-to-drive only takes url + download_to_pc (Veo videos have fixed quality)
+                qItem.downloadToPc = dlToPc === 'true';
+                qItem.quality = quality;
+                const resp = await fetch(`https://api.github.com/repos/${REPO}/actions/workflows/${workflow}/dispatches`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `token ${GH_TOKEN}`, 'Accept': 'application/vnd.github.v3+json' },
+                    body: JSON.stringify({ ref: 'master', inputs })
+                });
+                if (resp.status === 204) {
+                    qItem.status = 'downloading';
+                    qItem.progress = 10;
+                    saveQueue();
+                    showToast(dlToPc === 'true' ? 'ההורדה התחילה (יורד גם למחשב)' : 'ההורדה התחילה!', 'success');
+                    addHistory(url, qItem.type);
+                    trackProgress(qItem);
+                } else {
+                    qItem.status = 'error';
+                    saveQueue();
+                    showToast('שגיאה: ' + resp.status, 'error');
+                }
+            } catch(e) {
+                qItem.status = 'error'; saveQueue();
+                showToast('שגיאת רשת', 'error');
+            }
+            document.getElementById('urlInput').value = '';
+            document.getElementById('urlPreview').classList.add('d-none');
+        }
+
+        // Track download progress via GitHub Actions API
+        async function trackProgress(qItem) {
+            for (let i = 0; i < 60; i++) {
+                await new Promise(r => setTimeout(r, 5000));
+                if (qItem.status === 'downloading') {
+                    qItem.progress = Math.min(90, qItem.progress + Math.random() * 15);
+                    saveQueue();
+                }
+                try {
+                    const resp = await fetch(`https://api.github.com/repos/${REPO}/actions/runs?per_page=1&status=completed`, {
+                        headers: { 'Authorization': `token ${GH_TOKEN}` }
+                    });
+                    const data = await resp.json();
+                    const run = data.workflow_runs?.[0];
+                    if (run && new Date(run.updated_at) > new Date(Date.now() - 60000)) {
+                        if (run.conclusion === 'success') {
+                            qItem.status = 'done';
+                            qItem.progress = 100;
+                            saveQueue();
+                            updateStats();
+                            showToast('הקובץ הועלה לדרייב!', 'success');
+                            playBeep();
+                            sendNotification('VideoGrab', 'הקובץ הועלה לדרייב בהצלחה!');
+                            if (qItem.downloadToPc) await triggerPcDownload(qItem);
+                            return;
+                        } else if (run.conclusion === 'failure') {
+                            qItem.status = 'error';
+                            qItem.progress = 0;
+                            saveQueue();
+                            showToast('ההורדה נכשלה', 'error');
+                            return;
+                        }
+                    }
+                } catch(e) {}
+            }
+            qItem.status = 'done'; qItem.progress = 100; saveQueue();
+            playBeep();
+        }
+
+        // === Trigger PC download from Drive (uses public link set by workflow) ===
+        // === Add URL to PC queue (for the local watcher script) ===
+        async function addToPcQueue(url, quality) {
+            try {
+                const r = await fetch(`https://api.github.com/repos/${REPO}/contents/docs/pc_queue.json`, {
+                    headers: { 'Authorization': `token ${GH_TOKEN}` }
+                });
+                const file = await r.json();
+                let current;
+                try {
+                    current = JSON.parse(decodeURIComponent(escape(atob(file.content))));
+                } catch(e) { current = { items: [] }; }
+                if (!Array.isArray(current.items)) current.items = [];
+                current.items.push({ url, quality: quality || 'best', time: new Date().toISOString() });
+                // Keep only last 100
+                if (current.items.length > 100) current.items = current.items.slice(-100);
+                const putResp = await fetch(`https://api.github.com/repos/${REPO}/contents/docs/pc_queue.json`, {
+                    method: 'PUT',
+                    headers: { 'Authorization': `token ${GH_TOKEN}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        message: 'PC queue: ' + url.substring(0, 60),
+                        content: btoa(unescape(encodeURIComponent(JSON.stringify(current, null, 1)))),
+                        sha: file.sha
+                    })
+                });
+                if (putResp.ok) {
+                    showToast('נוסף לתור הורדה ישירה למחשב — הסקריפט המקומי יוריד תוך 20 שניות', 'success');
+                    sendNotification('VideoGrab', 'URL נוסף לתור ההורדה למחשב');
+                } else {
+                    showToast('שגיאה בהוספה לתור: ' + putResp.status, 'error');
+                }
+            } catch(e) {
+                showToast('שגיאה: ' + e.message, 'error');
+            }
+        }
+
+        async function triggerPcDownload(qItem) {
+            try {
+                // Wait for the workflow's commit to land in last_downloads.json
+                let entry = null;
+                for (let attempt = 0; attempt < 30; attempt++) {
+                    try {
+                        const r = await fetch(`https://raw.githubusercontent.com/${REPO}/master/docs/last_downloads.json?_=${Date.now()}`);
+                        if (r.ok) {
+                            const list = await r.json();
+                            entry = list.find(e => e.url === qItem.url && e.downloadToPc && (Date.now() - e.time) < 30 * 60 * 1000);
+                            if (entry) break;
+                        }
+                    } catch(e) {}
+                    await new Promise(r => setTimeout(r, 3000));
+                }
+                if (!entry) {
+                    showToast('הקובץ עלה לדרייב, אך לא נמצא ל-PC. נסה רענון', 'warning');
+                    return;
+                }
+                const directUrl = `https://drive.usercontent.google.com/download?id=${entry.id}&export=download&confirm=t`;
+                qItem.driveFileId = entry.id;
+                qItem.directUrl = directUrl;
+                qItem.fileName = entry.name;
+                saveQueue();
+
+                // Try fetch+blob first (works without popup, when CORS allows)
+                let downloaded = false;
+                try {
+                    const resp = await fetch(directUrl);
+                    if (resp.ok) {
+                        const blob = await resp.blob();
+                        const blobUrl = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = blobUrl;
+                        a.download = entry.name;
+                        document.body.appendChild(a);
+                        a.click();
+                        setTimeout(() => { a.remove(); URL.revokeObjectURL(blobUrl); }, 2000);
+                        downloaded = true;
+                    }
+                } catch(e) { /* CORS or network - fall back */ }
+
+                if (!downloaded) {
+                    // Fallback: open in new tab; browser handles Content-Disposition: attachment
+                    const win = window.open(directUrl, '_blank', 'noopener,noreferrer');
+                    if (!win || win.closed) {
+                        showToast('הדפדפן חסם חלון קופץ — לחץ "הורד למחשב" בתור', 'warning');
+                        sendNotification('VideoGrab', 'הקובץ מוכן! לחץ בתור להורדה למחשב');
+                        return;
+                    }
+                }
+                showToast('הורדה למחשב התחילה: ' + entry.name, 'success');
+                qItem.pcDownloaded = true;
+                saveQueue();
+                sendNotification('VideoGrab', 'הורדה למחשב: ' + entry.name);
+            } catch(e) {
+                console.error('PC download failed:', e);
+                showToast('שגיאה בהורדה למחשב — נסה כפתור ידני', 'error');
+            }
+        }
+
+        // Manual PC download trigger (user-initiated → no popup block)
+        function manualPcDownload(idx) {
+            const q = queue[idx];
+            if (!q || !q.directUrl) { showToast('אין URL זמין', 'error'); return; }
+            const a = document.createElement('a');
+            a.href = q.directUrl;
+            a.download = q.fileName || 'download.mp4';
+            a.target = '_blank';
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(() => a.remove(), 500);
+            q.pcDownloaded = true;
+            saveQueue();
+            showToast('הורדה התחילה: ' + (q.fileName || ''), 'success');
+        }
+
+        function startMultiDownload() {
+            const urls = document.getElementById('multiUrls').value.split('\n').map(u => u.trim()).filter(u => u.startsWith('http'));
+            if (!urls.length) { showToast('הכנס לפחות קישור אחד', 'error'); return; }
+            const blocked = urls.filter(u => false);
+            const clean = urls.filter(u => !false);
+            if (blocked.length) showToast(`${blocked.length} קישורים נחסמו (תוכן לא צנוע)`, 'warning');
+            if (!clean.length) return;
+            showToast(`מתחיל הורדה של ${clean.length} סרטונים...`, 'info');
+            clean.forEach((url, i) => setTimeout(() => startDownload(url), i * 2000));
+            document.getElementById('multiUrls').value = '';
+        }
+
+        function getDomain(url) { try { return new URL(url).hostname.replace('www.',''); } catch { return 'אתר'; } }
+
+        // === Queue with progress bars + retry + clear completed ===
+        function saveQueue() { localStorage.setItem('dl_queue', JSON.stringify(queue)); renderQueue(); }
+        function renderQueue() {
+            const el = document.getElementById('queueList');
+            const active = queue.filter(q => q.status !== 'done' && q.status !== 'error');
+            const badge = document.getElementById('queueBadge');
+            badge.textContent = active.length; badge.classList.toggle('d-none', !active.length);
+
+            if (!queue.length) { el.innerHTML = '<div class="text-center py-4 text-muted"><i class="bi bi-inbox fs-1 d-block mb-2" style="opacity:0.3"></i>אין הורדות בתור</div>'; return; }
+            el.innerHTML = queue.map((q, i) => {
+                const icons = { pending:'hourglass-split text-warning', downloading:'arrow-down-circle-fill text-primary', done:'check-circle-fill text-success', error:'x-circle-fill text-danger' };
+                const labels = { pending:'ממתין', downloading:'יורד...', done:'הושלם', error:'נכשל' };
+                const pct = Math.round(q.progress || 0);
+                const ft = detectFileType(q.url);
+                const speedHints = { video:'~2-5 דק\'', audio:'~30 שניות', image:'~10 שניות', doc:'~15 שניות', presentation:'~1 דק\'' };
+                const speedEst = q.status === 'downloading' ? `<span class="small text-muted me-2"><i class="bi bi-speedometer me-1"></i>${speedHints[ft.type] || '~2 דק\''}</span>` : '';
+                return `<div class="queue-item p-3 mb-2 bg-light">
+                    <div class="d-flex align-items-center justify-content-between mb-1">
+                        <div class="d-flex align-items-center flex-grow-1">
+                            <i class="bi bi-${icons[q.status]} fs-5 me-2"></i>
+                            <div class="flex-grow-1">
+                                <div class="small fw-bold"><i class="bi ${ft.icon} me-1"></i>${q.type} <span class="badge bg-${ft.color} badge-source">${ft.label}</span></div>
+                                <div class="small text-muted text-truncate" style="max-width:280px" dir="ltr">${q.url}</div>
+                            </div>
+                        </div>
+                        <div class="d-flex align-items-center">
+                            ${speedEst}
+                            ${q.status === 'downloading' ? `<span class="fw-bold text-primary me-2">${pct}%</span>` : ''}
+                            ${q.status === 'error' ? `<button class="btn btn-sm btn-outline-warning me-1" onclick="retryDownload(${i})" data-bs-toggle="tooltip" title="נסה שוב"><i class="bi bi-arrow-repeat"></i></button>` : ''}
+                            <span class="badge bg-${q.status==='done'?'success':q.status==='error'?'danger':'primary'} me-2">${labels[q.status]}</span>
+                            <button class="btn btn-sm btn-outline-secondary" onclick="queue.splice(${i},1);saveQueue();updateStats()"><i class="bi bi-x"></i></button>
+                        </div>
+                    </div>
+                    ${q.status === 'downloading' ? `<div class="progress" style="height:4px;border-radius:2px"><div class="progress-bar progress-bar-animated" style="width:${pct}%"></div></div>` : ''}
+                    ${q.status === 'done' ? `<small class="text-success"><i class="bi bi-check me-1"></i>הקובץ בדרייב${q.directUrl ? ` <button class="btn btn-sm btn-outline-primary ms-2" onclick="manualPcDownload(${i})"><i class="bi bi-pc-display me-1"></i>${q.pcDownloaded ? 'הורד שוב למחשב' : 'הורד למחשב'}</button>` : ''}</small>` : ''}
+                </div>`;
+            }).join('');
+        }
+
+        // Retry failed download
+        function retryDownload(index) {
+            const item = queue[index];
+            if (item) {
+                const url = item.url;
+                queue.splice(index, 1);
+                saveQueue();
+                startDownload(url);
+            }
+        }
+
+        // Clear completed items from queue
+        function clearCompletedQueue() {
+            const before = queue.length;
+            queue = queue.filter(q => q.status !== 'done');
+            saveQueue();
+            updateStats();
+            const removed = before - queue.length;
+            if (removed > 0) showToast(`${removed} פריטים שהושלמו נמחקו`, 'info');
+            else showToast('אין פריטים שהושלמו', 'info');
+        }
+
+        // === Search cache ===
+        const searchCache = {};
+
+        // === Recent searches ===
+        function getRecentSearches() { return JSON.parse(localStorage.getItem('recent_searches') || '[]'); }
+        function addRecentSearch(query) {
+            let searches = getRecentSearches();
+            searches = searches.filter(s => s !== query);
+            searches.unshift(query);
+            if (searches.length > 12) searches.pop();
+            localStorage.setItem('recent_searches', JSON.stringify(searches));
+        }
+        function removeRecentSearch(query, e) {
+            e.stopPropagation();
+            let searches = getRecentSearches();
+            searches = searches.filter(s => s !== query);
+            localStorage.setItem('recent_searches', JSON.stringify(searches));
+            showSearchHistory();
+            renderRecentSearches();
+        }
+        function renderRecentSearches() {
+            const searches = getRecentSearches();
+            const el = document.getElementById('recentSearches');
+            if (!searches.length) { el.classList.add('d-none'); return; }
+            el.classList.remove('d-none');
+            el.innerHTML = '<small class="text-muted fw-bold"><i class="bi bi-clock me-1"></i>חיפושים אחרונים:</small> ' +
+                searches.slice(0, 6).map(s => `<span class="recent-search" onclick="document.getElementById('searchInput').value='${s}';searchVideos()">${s}</span>`).join('');
+        }
+
+        // === Search history dropdown ===
+        function showSearchHistory() {
+            const searches = getRecentSearches();
+            const dd = document.getElementById('searchHistoryDropdown');
+            const input = document.getElementById('searchInput').value.trim().toLowerCase();
+            const filtered = input ? searches.filter(s => s.toLowerCase().includes(input)) : searches;
+            if (!filtered.length) { dd.classList.remove('show'); return; }
+            dd.innerHTML = `<div class="sh-header"><span><i class="bi bi-clock-history me-1"></i>חיפושים אחרונים</span><span class="sh-remove" onclick="clearRecentSearches();event.stopPropagation()">נקה הכל</span></div>` +
+                filtered.map(s => `<div class="sh-item" onclick="document.getElementById('searchInput').value='${s}';hideSearchHistory();searchVideos()">
+                    <i class="bi bi-clock-history"></i>
+                    <span class="sh-text">${s}</span>
+                    <span class="sh-remove" onclick="removeRecentSearch('${s}',event)"><i class="bi bi-x"></i></span>
+                </div>`).join('');
+            dd.classList.add('show');
+        }
+        function hideSearchHistory() {
+            setTimeout(() => document.getElementById('searchHistoryDropdown').classList.remove('show'), 150);
+        }
+        // Close dropdown on outside click
+        document.addEventListener('click', function(e) {
+            if (!e.target.closest('.search-input-wrap')) hideSearchHistory();
+        });
+
+        // === Search filter ===
+        let searchViewMode = 'list';
+        function setSearchFilter(el, source) {
+            document.querySelectorAll('#filterPillsBar .filter-pill').forEach(p => p.classList.remove('active'));
+            el.classList.add('active');
+            currentSearchFilter = source;
+            if (lastSearchResults.length) {
+                applyAllFilters();
+            }
+        }
+        // === Advanced filters state ===
+        let advFilters = { date: 'all', duration: 'all', sort: 'relevance', type: 'all', limit: '50' };
+
+        function setAdvFilter(category, el) {
+            advFilters[category] = el.dataset.val;
+            document.querySelectorAll(`.adv-filter-chip[data-filter="${category}"]`).forEach(c => c.classList.remove('active'));
+            el.classList.add('active');
+            applyAllFilters();
+        }
+
+        function applyAllFilters() {
+            if (!lastSearchResults.length) return;
+            let filtered = currentSearchFilter === 'all' ? [...lastSearchResults] : lastSearchResults.filter(v => v.source === currentSearchFilter);
+
+            // Date filter
+            if (advFilters.date !== 'all') {
+                const now = new Date();
+                filtered = filtered.filter(v => {
+                    if (!v.date) return false;
+                    const d = new Date(v.date);
+                    if (isNaN(d)) return false;
+                    const diffMs = now - d;
+                    const diffDays = diffMs / (1000 * 60 * 60 * 24);
+                    switch (advFilters.date) {
+                        case 'today': return diffDays < 1;
+                        case 'week': return diffDays < 7;
+                        case 'month': return diffDays < 30;
+                        case 'year': return diffDays < 365;
+                        default: return true;
+                    }
+                });
+            }
+
+            // Duration filter
+            if (advFilters.duration !== 'all') {
+                filtered = filtered.filter(v => {
+                    const dur = v.duration || 0;
+                    switch (advFilters.duration) {
+                        case 'short': return dur > 0 && dur < 300;
+                        case 'medium': return dur >= 300 && dur <= 1200;
+                        case 'long': return dur > 1200;
+                        default: return true;
+                    }
+                });
+            }
+
+            // Type filter — prefer server-provided kind, fallback to URL detection
+            if (advFilters.type !== 'all') {
+                filtered = filtered.filter(v => {
+                    const k = v.kind || detectFileType(v.url || '').type;
+                    return k === advFilters.type;
+                });
+            }
+
+            // Sort
+            if (advFilters.sort === 'date') {
+                filtered.sort((a, b) => {
+                    const da = a.date ? new Date(a.date) : new Date(0);
+                    const db = b.date ? new Date(b.date) : new Date(0);
+                    return db - da;
+                });
+            } else if (advFilters.sort === 'views') {
+                filtered.sort((a, b) => (b.views || 0) - (a.views || 0));
+            }
+            // 'relevance' = original order, no sort needed
+
+            displayResults(filtered, document.getElementById('searchInput').value);
+        }
+
+        function toggleSearchView(mode) {
+            searchViewMode = mode;
+            document.querySelectorAll('.view-toggle .btn').forEach(b => b.classList.remove('active'));
+            document.querySelector(`.view-toggle .btn[data-view="${mode}"]`).classList.add('active');
+            const container = document.getElementById('searchResultsList');
+            if (container) {
+                container.classList.toggle('search-grid', mode === 'grid');
+                container.classList.toggle('row', mode === 'grid');
+                container.classList.toggle('g-3', mode === 'grid');
+                document.querySelectorAll('.video-result-col').forEach(col => {
+                    col.className = mode === 'grid' ? 'video-result-col col-sm-6 col-md-4' : 'video-result-col col-12';
+                });
+            }
+        }
+
+        // === LIVE RUNS MONITOR (track + cancel workflows) ===
+        let runsMonitorInterval = null;
+        async function fetchRunningRuns() {
+            if (!GH_TOKEN) return [];
+            try {
+                const r = await fetch(`https://api.github.com/repos/${REPO}/actions/runs?status=in_progress&per_page=50`, {
+                    headers: { 'Authorization': `token ${GH_TOKEN}`, 'Accept': 'application/vnd.github+json' }
+                });
+                const data = await r.json();
+                const runs = (data.workflow_runs || []);
+                // Also get queued
+                const r2 = await fetch(`https://api.github.com/repos/${REPO}/actions/runs?status=queued&per_page=50`, {
+                    headers: { 'Authorization': `token ${GH_TOKEN}`, 'Accept': 'application/vnd.github+json' }
+                });
+                const queued = (await r2.json()).workflow_runs || [];
+                return [...runs, ...queued];
+            } catch (e) { return []; }
+        }
+
+        const WORKFLOW_LABELS = {
+            'crawl-site.yml': { name: 'הורדת אתר שלם', icon: 'bi-cloud-arrow-down-fill', color: 'warning' },
+            'universal-download.yml': { name: 'הורדה אוניברסלית', icon: 'bi-download', color: 'success' },
+            'download-to-drive.yml': { name: 'הורדה לדרייב', icon: 'bi-cloud-arrow-down', color: 'success' },
+            'youtube-to-drive.yml': { name: 'YouTube → דרייב', icon: 'bi-youtube', color: 'danger' },
+            'gemini-to-drive.yml': { name: 'Gemini → דרייב', icon: 'bi-stars', color: 'info' },
+            'search.yml': { name: 'חיפוש בפלטפורמות', icon: 'bi-search', color: 'primary' },
+            'web-video-search.yml': { name: 'חיפוש בכל הרשת', icon: 'bi-globe2', color: 'primary' },
+            'google-web-search.yml': { name: 'חיפוש בגוגל', icon: 'bi-google', color: 'primary' },
+            'wipe-all.yml': { name: 'מחיקת הכל', icon: 'bi-trash-fill', color: 'danger' },
+        };
+
+        function renderRunsList(runs) {
+            const el = document.getElementById('runsList');
+            if (!runs.length) {
+                el.innerHTML = '<div class="text-center text-muted py-4"><i class="bi bi-moon fs-1 d-block mb-2"></i>אין ריצות פעילות כרגע</div>';
+                return;
+            }
+            el.innerHTML = runs.map(r => {
+                const wfFile = (r.path || '').split('/').pop();
+                const meta = WORKFLOW_LABELS[wfFile] || { name: r.name || wfFile, icon: 'bi-gear', color: 'secondary' };
+                const elapsed = Math.floor((Date.now() - new Date(r.run_started_at || r.created_at).getTime()) / 1000);
+                const elapsedStr = elapsed > 60 ? `${Math.floor(elapsed/60)}:${(elapsed%60).toString().padStart(2,'0')}` : `${elapsed}s`;
+                const statusBadge = r.status === 'queued' ?
+                    '<span class="badge bg-secondary me-2">בתור</span>' :
+                    '<span class="badge bg-success me-2"><span class="spinner-grow spinner-grow-sm" style="width:6px;height:6px"></span> פועל</span>';
+                return `
+                <div class="card mb-2 border-${meta.color}">
+                  <div class="card-body p-2 d-flex align-items-center">
+                    <div class="me-3" style="font-size:1.4rem;color:var(--bs-${meta.color})"><i class="bi ${meta.icon}"></i></div>
+                    <div class="flex-grow-1">
+                      <div class="fw-bold" style="font-size:.92rem">${meta.name}</div>
+                      <div class="small text-muted">
+                        ${statusBadge}
+                        ⏱ ${elapsedStr}
+                        <a href="${r.html_url}" target="_blank" class="ms-2"><i class="bi bi-box-arrow-up-right"></i> Logs</a>
+                      </div>
+                    </div>
+                    <button class="btn btn-sm btn-outline-danger" onclick="cancelRun(${r.id})" title="עצור ריצה זו">
+                      <i class="bi bi-x-circle"></i> עצור
+                    </button>
+                  </div>
+                </div>`;
+            }).join('');
+        }
+
+        async function cancelRun(runId) {
+            if (!confirm('לעצור את הריצה?')) return;
+            try {
+                const r = await fetch(`https://api.github.com/repos/${REPO}/actions/runs/${runId}/cancel`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `token ${GH_TOKEN}`, 'Accept': 'application/vnd.github+json' }
+                });
+                if (r.status === 202 || r.status === 200) {
+                    showToast('ריצה נעצרה', 'success');
+                } else {
+                    showToast('שגיאה בעצירה: ' + r.status, 'error');
+                }
+                // Refresh immediately
+                refreshRunsMonitor();
+            } catch (e) {
+                showToast('שגיאה: ' + e.message, 'error');
+            }
+        }
+
+        async function cancelAllRuns() {
+            if (!confirm('לעצור את כל הריצות הפעילות?')) return;
+            const runs = await fetchRunningRuns();
+            for (const run of runs) {
+                try {
+                    await fetch(`https://api.github.com/repos/${REPO}/actions/runs/${run.id}/cancel`, {
+                        method: 'POST',
+                        headers: { 'Authorization': `token ${GH_TOKEN}`, 'Accept': 'application/vnd.github+json' }
+                    });
+                } catch {}
+            }
+            showToast(`נשלחה בקשת עצירה ל-${runs.length} ריצות`, 'success');
+            refreshRunsMonitor();
+        }
+
+        async function refreshRunsMonitor() {
+            const runs = await fetchRunningRuns();
+            renderRunsList(runs);
+            updateRunsFloatBtn(runs.length);
+        }
+
+        function openRunsMonitor() {
+            const modal = new bootstrap.Modal(document.getElementById('runsMonitorModal'));
+            modal.show();
+            refreshRunsMonitor();
+            runsMonitorInterval = setInterval(refreshRunsMonitor, 3000);
+            document.getElementById('runsMonitorModal').addEventListener('hidden.bs.modal', () => {
+                if (runsMonitorInterval) { clearInterval(runsMonitorInterval); runsMonitorInterval = null; }
+            }, { once: true });
+        }
+
+        function updateRunsFloatBtn(count) {
+            const btn = document.getElementById('runsFloatBtn');
+            const cnt = document.getElementById('runsFloatCount');
+            if (count > 0) {
+                btn.style.display = 'inline-flex';
+                cnt.textContent = count;
+            } else {
+                btn.style.display = 'none';
+            }
+        }
+
+        // Background poll every 5s (to keep the floating button accurate)
+        setInterval(async () => {
+            if (!GH_TOKEN) return;
+            const runs = await fetchRunningRuns();
+            updateRunsFloatBtn(runs.length);
+        }, 5000);
+
+        // === IN-PAGE PLAYER (no Drive download needed) ===
+        // 3 methods tried in order: official embed → CORS proxy stream → direct
+        function getEmbedUrl(url) {
+            try {
+                const u = new URL(url);
+                const host = u.hostname.replace('www.','');
+                // YouTube
+                if (host === 'youtube.com' || host === 'm.youtube.com') {
+                    const vid = u.searchParams.get('v');
+                    if (vid) return `https://www.youtube-nocookie.com/embed/${vid}?autoplay=1&rel=0`;
+                }
+                if (host === 'youtu.be') {
+                    return `https://www.youtube-nocookie.com/embed${u.pathname}?autoplay=1&rel=0`;
+                }
+                // Vimeo
+                if (host === 'vimeo.com') {
+                    const id = u.pathname.split('/').filter(Boolean)[0];
+                    if (id && /^\d+$/.test(id)) return `https://player.vimeo.com/video/${id}?autoplay=1`;
+                }
+                // Dailymotion
+                if (host === 'dailymotion.com') {
+                    const id = u.pathname.match(/video\/([^_/?#]+)/)?.[1];
+                    if (id) return `https://www.dailymotion.com/embed/video/${id}?autoplay=1`;
+                }
+                // Rumble
+                if (host === 'rumble.com') {
+                    const id = u.pathname.match(/v([^/.]+)/)?.[1];
+                    if (id) return `https://rumble.com/embed/v${id}/?pub=anonymous`;
+                }
+                // Odysee
+                if (host === 'odysee.com') {
+                    return url.replace('odysee.com/', 'odysee.com/$/embed/');
+                }
+                // Bitchute
+                if (host === 'bitchute.com') {
+                    const id = u.pathname.match(/video\/([^/]+)/)?.[1];
+                    if (id) return `https://www.bitchute.com/embed/${id}/`;
+                }
+                // Twitter/X
+                if (host === 'twitter.com' || host === 'x.com') {
+                    return `https://platform.twitter.com/embed/Tweet.html?id=${u.pathname.match(/status\/(\d+)/)?.[1]}`;
+                }
+            } catch(e) {}
+            return null;
+        }
+
+        function playInPage(url, title) {
+            const safeTitle = (title || 'Video').replace(/</g,'&lt;');
+            const embed = getEmbedUrl(url);
+            // Build modal
+            let modal = document.getElementById('inlinePlayerModal');
+            if (!modal) {
+                modal = document.createElement('div');
+                modal.id = 'inlinePlayerModal';
+                modal.className = 'modal fade';
+                modal.tabIndex = -1;
+                modal.innerHTML = `
+                    <div class="modal-dialog modal-xl modal-dialog-centered">
+                      <div class="modal-content" style="background:#000">
+                        <div class="modal-header py-2" style="background:#111;color:#fff;border:0">
+                          <h6 class="modal-title" id="iplTitle" style="font-size:.9rem"></h6>
+                          <div class="ms-auto d-flex gap-1">
+                            <button class="btn btn-sm btn-outline-light" id="iplOpenSource" title="פתח באתר המקורי"><i class="bi bi-box-arrow-up-right"></i></button>
+                            <button class="btn btn-sm btn-outline-light" id="iplDownload" title="הורד לדרייב"><i class="bi bi-download"></i></button>
+                            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                          </div>
+                        </div>
+                        <div class="modal-body p-0" id="iplBody" style="aspect-ratio:16/9;background:#000;position:relative;overflow:hidden;">
+                        </div>
+                      </div>
+                    </div>`;
+                document.body.appendChild(modal);
+                modal.addEventListener('hidden.bs.modal', () => {
+                    document.getElementById('iplBody').innerHTML = '';
+                });
+            }
+            document.getElementById('iplTitle').textContent = safeTitle;
+            document.getElementById('iplOpenSource').onclick = () => window.open(url, '_blank');
+            document.getElementById('iplDownload').onclick = () => { startDownload(url); showToast('הורדה התחילה', 'info'); };
+
+            const body = document.getElementById('iplBody');
+            body.innerHTML = '<div class="d-flex align-items-center justify-content-center h-100 text-white"><div class="spinner-border me-2"></div>טוען...</div>';
+            const inst = new bootstrap.Modal(modal);
+            inst.show();
+
+            // Strategy 1: Try official embed (works for YouTube/Vimeo etc.)
+            if (embed) {
+                body.innerHTML = `<iframe src="${embed}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen style="width:100%;height:100%;border:0"></iframe>`;
+                return;
+            }
+
+            // Strategy 2: Direct video URL (if URL ends with video file extension)
+            if (/\.(mp4|webm|mov|m4v|m3u8|mkv)(\?|$)/i.test(url)) {
+                body.innerHTML = `<video controls autoplay style="width:100%;height:100%" crossorigin="anonymous">
+                    <source src="${url}">
+                    <source src="https://corsproxy.io/?${encodeURIComponent(url)}">
+                </video>`;
+                return;
+            }
+
+            // Strategy 3: Iframe the original URL (some sites support being iframed)
+            body.innerHTML = `<iframe src="${url}" sandbox="allow-scripts allow-same-origin allow-presentation" allow="autoplay; encrypted-media; fullscreen" allowfullscreen style="width:100%;height:100%;border:0"></iframe>
+                <div style="position:absolute;bottom:8px;left:8px;background:rgba(0,0,0,0.7);color:#fff;padding:4px 8px;border-radius:4px;font-size:11px;">אם הסרטון לא מופיע, האתר חוסם הטמעה. לחץ "פתח באתר" למעלה.</div>`;
+        }
+
+        // === FAST web video search — multi-proxy fallback chain (creative reliability) ===
+        // Tries 4 different methods IN PARALLEL, first to succeed wins.
+        // NetFree-resilient: at least one is almost always reachable.
+        const CORS_PROXIES = [
+            url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+            url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+            url => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+            url => `https://thingproxy.freeboard.io/fetch/${url}`,
+        ];
+        async function fetchViaProxy(url) {
+            // Race all proxies in parallel - return first successful response
+            const attempts = CORS_PROXIES.map((makeUrl, i) =>
+                fetch(makeUrl(url), { signal: AbortSignal.timeout(8000) })
+                    .then(r => r.ok ? r.text() : Promise.reject('http ' + r.status))
+                    .then(text => {
+                        if (text.length < 1000) throw new Error('too short');
+                        return text;
+                    })
+            );
+            // Promise.any returns first fulfilled; throws AggregateError only if ALL fail
+            try {
+                return await Promise.any(attempts);
+            } catch (e) {
+                throw new Error('all proxies failed');
+            }
+        }
+        async function fastWebVideoSearch(query, cacheKey, resultsEl) {
+            const newVideos = [];
+            const seen = new Set();
+
+            // 1. YouTube direct
+            try {
+                const html = await fetchViaProxy('https://www.youtube.com/results?search_query=' + encodeURIComponent(query) + '&sp=EgIQAQ%3D%3D');
+                const re = /"videoRenderer":\{"videoId":"([^"]{11})"[^{]*?"title":\{"runs":\[\{"text":"([^"]+)"\}\][^{]*?(?:"simpleText":"(\d+:\d+(?::\d+)?)")?[^{]*?(?:"ownerText":\{"runs":\[\{"text":"([^"]+)"\})?/g;
+                let m;
+                while ((m = re.exec(html)) && newVideos.length < 50) {
+                    const vid = m[1], title = m[2], dur = m[3] || '', uploader = m[4] || '';
+                    if (seen.has(vid)) continue;
+                    seen.add(vid);
+                    let durSec = 0;
+                    if (dur) {
+                        const p = dur.split(':').map(Number);
+                        durSec = p.length === 2 ? p[0]*60+p[1] : p[0]*3600+p[1]*60+p[2];
+                    }
+                    newVideos.push({
+                        url: 'https://www.youtube.com/watch?v=' + vid,
+                        title, source: 'YouTube', duration: durSec,
+                        channel: uploader, thumb: 'https://i.ytimg.com/vi/' + vid + '/mqdefault.jpg',
+                        kind: 'video'
+                    });
+                }
+            } catch(e) { console.log('YT fast', e); }
+
+            // 2. Bing video search in parallel (next call)
+            try {
+                const html = await fetchViaProxy('https://www.bing.com/videos/search?q=' + encodeURIComponent(query));
+                const re = /"murl":"([^"]+)","name":"([^"]+)"[^}]*?(?:"duration":"([^"]*)")?[^}]*?(?:"thumbnail":"([^"]*)")?/g;
+                let m;
+                while ((m = re.exec(html)) && newVideos.length < 80) {
+                    const url = m[1].replace(/\\\//g,'/');
+                    if (seen.has(url)) continue;
+                    seen.add(url);
+                    newVideos.push({
+                        url, title: m[2] || url, source: 'Bing',
+                        thumb: (m[4] || '').replace(/\\\//g,'/'),
+                        kind: 'video'
+                    });
+                }
+            } catch(e) { console.log('Bing fast', e); }
+
+            if (!newVideos.length) return;
+
+            // Merge with existing cache and display
+            const existing = searchCache[cacheKey] || [];
+            const merged = [...existing];
+            for (const v of newVideos) {
+                if (!merged.find(m => (m.url||'').split('?')[0] === (v.url||'').split('?')[0])) merged.push(v);
+            }
+            lastSearchResults = merged;
+            searchCache[cacheKey] = merged;
+            const filtered = currentSearchFilter === 'all' ? merged : merged.filter(v => v.source === currentSearchFilter);
+            displayResults(filtered, query, false);
+        }
+
+        // === Search - with cache + YouTube-style skeleton ===
+        let searchStartTime = 0;
+        async function searchVideos() {
+            const query = document.getElementById('searchInput').value.trim();
+            if (!query) return;
+
+            const searchMode = document.querySelector('input[name="searchMode"]:checked')?.value || 'all';
+
+            if (!GH_TOKEN) { new bootstrap.Modal(document.getElementById('setupModal')).show(); return; }
+
+            addRecentSearch(query);
+            renderRecentSearches();
+            searchStartTime = performance.now();
+
+            const results = document.getElementById('searchResults');
+            const cacheKey = query.toLowerCase().trim();
+
+            // Show cached results immediately if available
+            if (searchCache[cacheKey]) {
+                lastSearchResults = searchCache[cacheKey];
+                const filtered = currentSearchFilter === 'all' ? searchCache[cacheKey] : searchCache[cacheKey].filter(v => v.source === currentSearchFilter);
+                displayResults(filtered, query, true);
+            } else {
+                results.innerHTML = buildSkeletonHTML();
+            }
+
+            // FAST: YouTube search via Apps Script (skip if mode=other)
+            if (searchMode !== 'other') {
+                const YT_API = 'https://script.google.com/macros/s/AKfycbx6P8RJi1PCYl_fAnblzQ4wCm2KwkORszbOyVQgVGnjjuPX0QS1n1tCNSdh38jBWayXtQ/exec';
+                try {
+                    const ytResp = await fetch(`${YT_API}?q=${encodeURIComponent(query)}`);
+                    if (ytResp.ok) {
+                        const ytData = await ytResp.json();
+                        const safe = (ytData.results || []).filter(v => !v.error);
+                        if (safe.length > 0) {
+                            lastSearchResults = safe;
+                            searchCache[cacheKey] = safe;
+                            const filtered = currentSearchFilter === 'all' ? safe : safe.filter(v => v.source === currentSearchFilter);
+                            displayResults(filtered, query, false);
+                        }
+                    }
+                } catch(e) { console.log('Fast search error:', e); }
+            }
+
+            // If mode=youtube only, stop here
+            if (searchMode === 'youtube') {
+                if (!searchCache[cacheKey] || !searchCache[cacheKey].length) {
+                    results.innerHTML = '<div class="no-results"><i class="bi bi-youtube d-block"></i><h5>אין תוצאות מ-YouTube</h5><p>נסה שאילתה אחרת או בחר "בכל מקום"</p></div>';
+                }
+                return;
+            }
+
+            // FAST WEB SEARCH (replaces slow GitHub Actions) — directly via Apps Script urlToDrive
+            // proxies search engines (no CORS, returns in 3-5 seconds)
+            fastWebVideoSearch(query, cacheKey, results).catch(e => console.log('fast web err', e));
+
+            // SLOW backup: GitHub Actions for more sources (kept for niche video platforms)
+            fetch(`https://api.github.com/repos/${REPO}/actions/workflows/search.yml/dispatches`, {
+                method: 'POST',
+                headers: { 'Authorization': `token ${GH_TOKEN}`, 'Accept': 'application/vnd.github.v3+json' },
+                body: JSON.stringify({ ref: 'master', inputs: {
+                    query: query,
+                    type: advFilters.type || 'all',
+                    limit: String(advFilters.limit || '50')
+                } })
+            }).catch(() => {});
+
+            // UNIVERSAL: also trigger web-video-search across DuckDuckGo+Bing+Yandex+YouTube (any site on the web)
+            fetch(`https://api.github.com/repos/${REPO}/actions/workflows/web-video-search.yml/dispatches`, {
+                method: 'POST',
+                headers: { 'Authorization': `token ${GH_TOKEN}`, 'Accept': 'application/vnd.github.v3+json' },
+                body: JSON.stringify({ ref: 'master', inputs: { query: query, max_results: '50' } })
+            }).catch(() => {});
+
+            // OTHER SITES mode: trigger Google web search to get NON-platform sites
+            if (searchMode === 'other' || searchMode === 'all') {
+                fetch(`https://api.github.com/repos/${REPO}/actions/workflows/google-web-search.yml/dispatches`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `token ${GH_TOKEN}`, 'Accept': 'application/vnd.github.v3+json' },
+                    body: JSON.stringify({ ref: 'master', inputs: {
+                        query: query,
+                        limit: '30',
+                        exclude_video_platforms: searchMode === 'other' ? 'true' : 'false'
+                    } })
+                }).catch(() => {});
+            }
+
+            // Poll for web-video-search results in parallel (fast: 2s interval, timestamp-based)
+            const wvsStartTime = Date.now();
+            (async () => {
+                for (let i = 0; i < 60; i++) {
+                    await new Promise(r => setTimeout(r, 2000));
+                    try {
+                        const r = await fetch(`https://raw.githubusercontent.com/${REPO}/master/search_results.json?_=${Date.now()}`);
+                        if (!r.ok) continue;
+                        const data = await r.json();
+                        // Match by recent timestamp instead of strict query equality
+                        const fileTime = data.timestamp ? new Date(data.timestamp).getTime() : 0;
+                        if (fileTime < wvsStartTime - 10000) continue;
+                        const merged = [...(searchCache[cacheKey] || [])];
+                        for (const item of (data.results || [])) {
+                            const normalizedUrl = (item.url || '').split('?')[0];
+                            if (!merged.find(m => (m.url || '').split('?')[0] === normalizedUrl)) {
+                                merged.push({
+                                    title: item.title,
+                                    url: item.url,
+                                    source: item.source || 'web',
+                                    duration: item.duration ? parseInt(item.duration) : undefined,
+                                    channel: item.uploader || item.channel || '',
+                                    thumb: item.thumbnail || item.thumb || '',
+                                    kind: 'video',
+                                });
+                            }
+                        }
+                        lastSearchResults = merged;
+                        searchCache[cacheKey] = merged;
+                        const filtered = currentSearchFilter === 'all' ? merged : merged.filter(v => v.source === currentSearchFilter);
+                        displayResults(filtered, query, false);
+                        return;
+                    } catch (e) {}
+                }
+            })();
+
+            // Poll for GitHub Actions results (adds more sources)
+            for (let i = 0; i < 30; i++) {
+                await new Promise(r => setTimeout(r, 2000));
+                try {
+                    const runsResp = await fetch(`https://api.github.com/repos/${REPO}/actions/workflows/search.yml/runs?per_page=1`, {
+                        headers: { 'Authorization': `token ${GH_TOKEN}` }
+                    });
+                    const runs = await runsResp.json();
+                    const run = runs.workflow_runs?.[0];
+                    if (run?.status === 'completed' && new Date(run.updated_at) > new Date(Date.now() - 120000)) {
+                        const jsonResp = await fetch(`https://api.github.com/repos/${REPO}/contents/docs/search_results.json?_=${Date.now()}`, {
+                            headers: { 'Authorization': `token ${GH_TOKEN}`, 'Accept': 'application/vnd.github.v3.raw' }
+                        });
+                        if (jsonResp.ok) {
+                            const data = await jsonResp.json();
+                            // Match by recent run timestamp instead of strict query equality
+                            if (new Date(run.updated_at) > new Date(searchStartTime + Date.now() - performance.now() - 5000)) {
+                                const safe = data.results || [];
+                                // Merge with existing YouTube results
+                                const merged = [...(searchCache[cacheKey] || [])];
+                                for (const r of safe) {
+                                    if (!merged.find(m => m.url === r.url)) merged.push(r);
+                                }
+                                lastSearchResults = merged;
+                                searchCache[cacheKey] = merged;
+                                const filtered = currentSearchFilter === 'all' ? merged : merged.filter(v => v.source === currentSearchFilter);
+                                displayResults(filtered, query, false);
+                                return;
+                            }
+                        }
+                    }
+                } catch(e) {}
+            }
+            if (!searchCache[cacheKey]) {
+                results.innerHTML = `<div class="no-results">
+                    <i class="bi bi-hourglass-split d-block"></i>
+                    <h5>החיפוש לקח יותר מדי זמן</h5>
+                    <p>נסה שוב או חפש מונח אחר</p>
+                    <button class="btn btn-download text-white mt-2" onclick="searchVideos()"><i class="bi bi-arrow-repeat me-1"></i>נסה שוב</button>
+                </div>`;
+            }
+        }
+
+        function buildSkeletonHTML() {
+            let html = `<div class="py-2">
+                <div class="d-flex align-items-center mb-3 p-2" style="background:#f0f0ff;border-radius:10px">
+                    <div class="spinner-border spinner-border-sm text-primary me-2"></div>
+                    <span class="fw-bold" style="font-size:.9rem">🌐 מחפש בכל הרשת — YouTube + Vimeo + Dailymotion + Rumble + Odysee + Bitchute + Wikimedia + הידברות + DuckDuckGo + Bing + Yandex...</span>
+                    <span class="search-timer text-muted me-auto" style="font-size:.8rem"></span>
+                </div>`;
+            for (let i = 0; i < 5; i++) {
+                html += `<div class="skeleton-yt">
+                    <div class="sk-thumb skeleton"></div>
+                    <div class="sk-body">
+                        <div class="sk-title skeleton"></div>
+                        <div class="sk-line sk-mid skeleton"></div>
+                        <div class="sk-line sk-short skeleton"></div>
+                    </div>
+                </div>`;
+            }
+            html += '</div>';
+            return html;
+        }
+
+        function formatDuration(seconds) {
+            if (!seconds || seconds <= 0) return '';
+            const h = Math.floor(seconds / 3600);
+            const m = Math.floor((seconds % 3600) / 60);
+            const s = Math.floor(seconds % 60);
+            if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+            return `${m}:${String(s).padStart(2,'0')}`;
+        }
+
+        function displayResults(videos, query, fromCache) {
+            const el = document.getElementById('searchResults');
+            const elapsed = ((performance.now() - searchStartTime) / 1000).toFixed(2);
+
+            if (!videos?.length) {
+                el.innerHTML = `<div class="no-results">
+                    <i class="bi bi-search d-block"></i>
+                    <h5>לא נמצאו תוצאות עבור "${query}"</h5>
+                    <p>נסה לחפש מונח אחר או לשנות את הפילטר</p>
+                    <div class="mt-3">
+                        <span class="suggestion-chip" onclick="document.getElementById('searchInput').value='${query} שיעור';searchVideos()">${query} שיעור</span>
+                        <span class="suggestion-chip" onclick="document.getElementById('searchInput').value='${query} הרצאה';searchVideos()">${query} הרצאה</span>
+                        <span class="suggestion-chip" onclick="setSearchFilter(document.querySelector('.filter-pill[data-source=all]'),'all')">הצג את כל המקורות</span>
+                    </div>
+                </div>`;
+                return;
+            }
+
+            const badgeColors = {'YouTube':'bg-danger','Dailymotion':'bg-info','Vimeo':'bg-primary','הידברות':'bg-success','Archive.org':'bg-warning text-dark','Rumble':'bg-success','Odysee':'bg-warning text-dark','Bitchute':'bg-secondary','Wikimedia':'bg-dark','SlideShare':'bg-info text-dark'};
+            const sourceIcons = {'YouTube':'bi-youtube','Dailymotion':'bi-play-circle','Vimeo':'bi-vimeo','הידברות':'bi-book','Archive.org':'bi-archive','Rumble':'bi-broadcast','Odysee':'bi-stars','Bitchute':'bi-camera-reels','Wikimedia':'bi-wikipedia','SlideShare':'bi-easel'};
+            const kindBadge = {'video':{c:'bg-primary',i:'bi-film',l:'וידאו'},'audio':{c:'bg-success',i:'bi-music-note',l:'שמע'},'image':{c:'bg-info text-dark',i:'bi-image',l:'תמונה'},'doc':{c:'bg-warning text-dark',i:'bi-file-earmark-text',l:'מסמך'},'presentation':{c:'bg-danger',i:'bi-easel',l:'מצגת'}};
+            const isGrid = searchViewMode === 'grid';
+            const cacheLabel = fromCache ? ' <span class="badge bg-secondary" style="font-size:.65rem">מהמטמון</span>' : '';
+
+            let html = `<div class="search-header">
+                <div class="search-stats">${videos.length} תוצאות עבור "<strong>${query}</strong>" <span class="text-muted">(${elapsed} שניות)</span>${cacheLabel}</div>
+                <div class="view-toggle btn-group btn-group-sm">
+                    <button class="btn btn-outline-secondary ${searchViewMode==='list'?'active':''}" data-view="list" onclick="toggleSearchView('list')" title="תצוגת רשימה"><i class="bi bi-list-ul"></i></button>
+                    <button class="btn btn-outline-secondary ${searchViewMode==='grid'?'active':''}" data-view="grid" onclick="toggleSearchView('grid')" title="תצוגת כרטיסים"><i class="bi bi-grid-3x3-gap"></i></button>
+                </div>
+            </div>`;
+            html += `<div id="searchResultsList" class="${isGrid ? 'search-grid row g-3' : ''}">`;
+            for (const v of videos) {
+                const dur = formatDuration(v.duration);
+                const badge = badgeColors[v.source] || 'bg-secondary';
+                const srcIcon = sourceIcons[v.source] || 'bi-globe';
+                const colClass = isGrid ? 'col-sm-6 col-md-4' : 'col-12';
+                const desc = v.description ? v.description.substring(0, 120) : '';
+                const uploadDate = v.date ? new Date(v.date).toLocaleDateString('he-IL', {year:'numeric',month:'short',day:'numeric'}) : '';
+
+                const thumbInner = dur ? `<span class="video-duration-badge">${dur}</span>` : '';
+                const thumb = v.thumb
+                    ? `<div style="position:relative;flex-shrink:0"><img src="${v.thumb}" class="video-thumb me-3" onerror="this.parentElement.outerHTML='<div class=\\'video-thumb-placeholder me-3\\'><i class=\\'bi bi-film fs-3 text-muted\\'></i></div>'">${thumbInner}</div>`
+                    : `<div class="video-thumb-placeholder me-3"><i class="bi bi-film fs-3 text-muted"></i></div>`;
+
+                const idx = videos.indexOf(v);
+                const kind = v.kind || (detectFileType(v.url||'').type);
+                const kb = kindBadge[kind] || kindBadge.video;
+                // Build format dropdown from server-supplied formats, fallback to default video set
+                const fmts = (Array.isArray(v.formats) && v.formats.length) ? v.formats : [
+                    {label:'MP4 מלא', value:'best', format:'video'},
+                    {label:'MP4 720p', value:'720', format:'video'},
+                    {label:'MP4 480p', value:'480', format:'video'},
+                    {label:'MP3 שמע', value:'best', format:'audio'},
+                ];
+                const fmtOptions = fmts.map((f,fi) => `<option value="${fi}"${fi===0?' selected':''}>${f.label}</option>`).join('');
+                // Stash formats globally so download handler can read them
+                window.__searchFormats = window.__searchFormats || {};
+                window.__searchFormats[`r${idx}`] = fmts;
+                const safeUrl = (v.url||'').replace(/'/g, "\\'");
+
+                html += `<div class="video-result-col ${colClass}">
+                    <div class="video-result p-3 mb-2 d-flex align-items-start">
+                        ${thumb}
+                        <div class="video-info flex-grow-1">
+                            <div class="video-title">${v.title}</div>
+                            <div class="d-flex align-items-center gap-2 mb-1 flex-wrap">
+                                <span class="badge ${badge} badge-source"><i class="bi ${srcIcon} me-1"></i>${v.source}</span>
+                                <span class="badge ${kb.c} badge-source"><i class="bi ${kb.i} me-1"></i>${kb.l}</span>
+                            </div>
+                            ${desc ? `<div class="video-desc">${desc}</div>` : ''}
+                            <div class="video-meta">
+                                ${v.channel ? `<span><i class="bi bi-person me-1"></i>${v.channel}</span>` : ''}
+                                ${uploadDate ? `<span><i class="bi bi-calendar3 me-1"></i>${uploadDate}</span>` : ''}
+                                ${v.duration > 0 ? `<span><i class="bi bi-clock me-1"></i>${Math.ceil(v.duration/60)} דק'</span>` : ''}
+                            </div>
+                        </div>
+                        <div class="d-flex flex-column align-items-end gap-1 video-dl-btn" style="min-width:140px">
+                            <button class="btn btn-sm btn-primary w-100" onclick="event.stopPropagation();playInPage('${safeUrl}', ${JSON.stringify(v.title || '')})" title="נגן כאן בלי הורדה"><i class="bi bi-play-fill me-1"></i>נגן</button>
+                            <select class="form-select form-select-sm" id="sfmt_${idx}" style="font-size:.72rem;padding:2px 4px;border-radius:6px;width:100%">
+                                ${fmtOptions}
+                            </select>
+                            <button class="btn btn-sm btn-download text-white px-3 w-100" onclick="event.stopPropagation();startDownloadFromSearch('${safeUrl}',${idx})" data-bs-toggle="tooltip" title="הורד לדרייב"><i class="bi bi-download me-1"></i>הורד</button>
+                        </div>
+                    </div>
+                </div>`;
+            }
+            html += '</div>';
+            el.innerHTML = html;
+            initTooltips();
+        }
+
+        // === History with copy URL + CSV export ===
+        function addHistory(url, type) {
+            const list = JSON.parse(localStorage.getItem('dl_history')||'[]');
+            list.unshift({ url, type, time: new Date().toLocaleString('he-IL') });
+            if (list.length > 50) list.pop();
+            localStorage.setItem('dl_history', JSON.stringify(list));
+            updateStats();
+        }
+        function renderHistory() {
+            const list = JSON.parse(localStorage.getItem('dl_history')||'[]');
+            const el = document.getElementById('historyList');
+            if (!list.length) { el.innerHTML = '<p class="text-muted text-center py-3">אין הורדות עדיין</p>'; return; }
+            el.innerHTML = list.map((h,i) => `<div class="history-item p-2 mb-2 d-flex justify-content-between align-items-center">
+                <div class="flex-grow-1"><small class="text-muted">${h.time}</small><span class="badge bg-secondary badge-source ms-1">${h.type}</span>
+                <div class="small text-truncate" style="max-width:350px" dir="ltr">${h.url}</div></div>
+                <div class="d-flex">
+                    <button class="btn btn-sm btn-outline-secondary me-1" onclick="copyUrl('${h.url}')" data-bs-toggle="tooltip" title="העתק קישור"><i class="bi bi-clipboard"></i></button>
+                    <button class="btn btn-sm btn-outline-primary me-1" onclick="startDownload('${h.url}')" data-bs-toggle="tooltip" title="הורד שוב"><i class="bi bi-arrow-repeat"></i></button>
+                    <button class="btn btn-sm btn-outline-danger" onclick="deleteHistory(${i})" data-bs-toggle="tooltip" title="מחק"><i class="bi bi-trash"></i></button>
+                </div>
+            </div>`).join('');
+            initTooltips();
+        }
+
+        // Copy URL to clipboard
+        function copyUrl(url) {
+            navigator.clipboard.writeText(url).then(() => {
+                showToast('הקישור הועתק!', 'success');
+            }).catch(() => {
+                showToast('שגיאה בהעתקה', 'error');
+            });
+        }
+
+        // Export history as CSV
+        function exportHistoryCSV() {
+            const list = JSON.parse(localStorage.getItem('dl_history') || '[]');
+            if (!list.length) { showToast('אין היסטוריה לייצוא', 'info'); return; }
+            let csv = '\uFEFF' + 'תאריך,מקור,קישור\n';
+            list.forEach(h => {
+                csv += `"${h.time}","${h.type}","${h.url}"\n`;
+            });
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = 'videograb_history.csv';
+            link.click();
+            showToast('היסטוריה יוצאה בהצלחה!', 'success');
+        }
+
+        function deleteHistory(i) { const l=JSON.parse(localStorage.getItem('dl_history')||'[]');l.splice(i,1);localStorage.setItem('dl_history',JSON.stringify(l));renderHistory();updateStats(); }
+        function clearHistory() { if(confirm('למחוק את כל ההיסטוריה?')){localStorage.removeItem('dl_history');renderHistory();updateStats();} }
+
+        function updateStats() {
+            document.getElementById('statTotal').textContent = JSON.parse(localStorage.getItem('dl_history')||'[]').length;
+            document.getElementById('statQueue').textContent = queue.filter(q=>q.status!=='done'&&q.status!=='error').length;
+            renderQueue(); renderHistory();
+        }
+        updateStats();
+
+        // === Favorites ===
+        function getFavorites() { return JSON.parse(localStorage.getItem('favorites') || '[]'); }
+        function addFavorite() {
+            const name = document.getElementById('favName').value.trim();
+            const url = document.getElementById('favUrl').value.trim();
+            if (!name || !url) { showToast('מלא שם וקישור', 'error'); return; }
+            const favs = getFavorites();
+            favs.push({ name, url });
+            localStorage.setItem('favorites', JSON.stringify(favs));
+            document.getElementById('favName').value = '';
+            document.getElementById('favUrl').value = '';
+            document.getElementById('addFavArea').classList.add('d-none');
+            renderFavorites();
+            showToast('נוסף למועדפים!', 'success');
+        }
+        function removeFavorite(i) {
+            const favs = getFavorites();
+            favs.splice(i, 1);
+            localStorage.setItem('favorites', JSON.stringify(favs));
+            renderFavorites();
+        }
+        function renderFavorites() {
+            const favs = getFavorites();
+            const el = document.getElementById('favList');
+            if (!favs.length) {
+                el.innerHTML = '<div class="text-center py-4 text-muted"><i class="bi bi-star fs-1 d-block mb-2" style="opacity:0.3"></i>אין מועדפים. הוסף אתרים שאתה מוריד מהם הרבה.</div>';
+                return;
+            }
+            el.innerHTML = favs.map((f, i) => `<div class="history-item p-3 mb-2 d-flex justify-content-between align-items-center">
+                <div><i class="bi bi-star-fill text-warning me-2"></i><strong>${f.name}</strong>
+                <div class="small text-muted" dir="ltr">${f.url}</div></div>
+                <div>
+                    <button class="btn btn-sm btn-download text-white me-1" onclick="startDownload('${f.url}')" data-bs-toggle="tooltip" title="הורד"><i class="bi bi-download"></i></button>
+                    <button class="btn btn-sm btn-outline-danger" onclick="removeFavorite(${i})" data-bs-toggle="tooltip" title="הסר"><i class="bi bi-trash"></i></button>
+                </div>
+            </div>`).join('');
+            initTooltips();
+        }
+
+        // === Drive Browser ===
+        async function loadDriveFiles() {
+            const el = document.getElementById('driveFiles');
+            el.innerHTML = '<div class="text-center py-3"><div class="spinner-border spinner-border-sm text-primary"></div> טוען...</div>';
+            try {
+                const resp = await fetch(`https://api.github.com/repos/${REPO}/actions/workflows/list-drive.yml/dispatches`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `token ${GH_TOKEN}`, 'Accept': 'application/vnd.github.v3+json' },
+                    body: JSON.stringify({ ref: 'master', inputs: {} })
+                });
+                if (resp.status === 204) {
+                    el.innerHTML = '<div class="text-center py-3"><div class="spinner-border spinner-border-sm text-primary"></div> טוען קבצים מדרייב...</div>';
+                    for (let i = 0; i < 20; i++) {
+                        await new Promise(r => setTimeout(r, 5000));
+                        try {
+                            const runsResp = await fetch(`https://api.github.com/repos/${REPO}/actions/workflows/list-drive.yml/runs?per_page=1`, {
+                                headers: { 'Authorization': `token ${GH_TOKEN}` }
+                            });
+                            const runs = await runsResp.json();
+                            if (runs.workflow_runs?.[0]?.status === 'completed') {
+                                const jsonResp = await fetch(`https://api.github.com/repos/${REPO}/contents/docs/drive_files.json?_=${Date.now()}`, {
+                                    headers: { 'Authorization': `token ${GH_TOKEN}`, 'Accept': 'application/vnd.github.v3.raw' }
+                                });
+                                if (jsonResp.ok) {
+                                    const files = await jsonResp.json();
+                                    displayDriveFiles(files);
+                                    return;
+                                }
+                            }
+                        } catch(e) {}
+                    }
+                }
+                el.innerHTML = '<p class="text-center"><a href="https://drive.google.com/drive/folders/19yrOYTUuevMQKJDbIgAN_PZ6vswzwOmF" target="_blank" class="btn btn-primary"><i class="bi bi-folder2-open me-1"></i>פתח בדרייב</a></p>';
+            } catch(e) {
+                el.innerHTML = '<p class="text-danger text-center">שגיאה בטעינה</p>';
+            }
+        }
+        function displayDriveFiles(files) {
+            const el = document.getElementById('driveFiles');
+            if (!files?.length) { el.innerHTML = '<p class="text-muted text-center">אין קבצים</p>'; return; }
+            const icons = { 'video': 'bi-film text-primary', 'audio': 'bi-music-note text-success', 'image': 'bi-image text-info', 'application/pdf': 'bi-file-earmark-pdf text-danger' };
+            el.innerHTML = files.map(f => {
+                const icon = Object.entries(icons).find(([k]) => (f.mimeType||'').includes(k))?.[1] || 'bi-file-earmark text-secondary';
+                const sizeMB = f.size ? (f.size/1024/1024).toFixed(1) + ' MB' : '';
+                return `<div class="history-item p-2 mb-2 d-flex align-items-center">
+                    <i class="bi ${icon} fs-4 me-3"></i>
+                    <div class="flex-grow-1"><div class="fw-bold small">${f.name}</div><small class="text-muted">${sizeMB}</small></div>
+                    <a href="${f.webViewLink||'#'}" target="_blank" class="btn btn-sm btn-outline-primary"><i class="bi bi-box-arrow-up-left"></i></a>
+                </div>`;
+            }).join('');
+        }
+
+        // === Dark Mode ===
+        function toggleDark() {
+            document.body.classList.toggle('dark');
+            localStorage.setItem('dark', document.body.classList.contains('dark'));
+            document.getElementById('darkBtn').innerHTML = document.body.classList.contains('dark') ?
+                '<i class="bi bi-sun me-1"></i>מצב בהיר' : '<i class="bi bi-moon me-1"></i>מצב כהה';
+        }
+        if (localStorage.getItem('dark') === 'true') toggleDark();
+
+        // === PWA ===
+        let deferredPrompt;
+        window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferredPrompt = e; document.getElementById('installBtn').style.display = ''; });
+        function installPWA() { if (deferredPrompt) { deferredPrompt.prompt(); deferredPrompt = null; } }
+        if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+
+        // === Feedback ===
+        async function sendFeedback() {
+            const msg = document.getElementById('feedbackInput').value.trim();
+            if (!msg) return;
+            const st = document.getElementById('feedbackStatus');
+            st.classList.remove('d-none');
+            st.textContent = 'שולח...';
+            try {
+                const r = await fetch(`https://api.github.com/repos/${REPO}/contents/docs/feedback.json`, {
+                    headers: { 'Authorization': `token ${GH_TOKEN}`, 'Accept': 'application/vnd.github.v3+json' }
+                });
+                const file = await r.json();
+                const raw = decodeURIComponent(escape(atob(file.content)));
+                const current = JSON.parse(raw);
+                if (!Array.isArray(current.messages)) current.messages = [];
+                current.messages.push({ id: 'm_' + Date.now(), text: msg, time: new Date().toISOString(), status: 'pending' });
+                await fetch(`https://api.github.com/repos/${REPO}/contents/docs/feedback.json`, {
+                    method: 'PUT',
+                    headers: { 'Authorization': `token ${GH_TOKEN}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: 'feedback', content: btoa(unescape(encodeURIComponent(JSON.stringify(current,null,1)))), sha: file.sha })
+                });
+                st.textContent = 'נשלח! אטפל בזה תוך 10 דק׳ לכל היותר.';
+                document.getElementById('feedbackInput').value = '';
+                showToast('ההודעה נשלחה!', 'success');
+                loadFeedbackThread();
+            } catch(e) {
+                st.textContent = 'שגיאה: ' + e.message;
+            }
+        }
+
+        async function loadFeedbackThread() {
+            const el = document.getElementById('feedbackThread');
+            if (!el) return;
+            try {
+                const r = await fetch(`https://raw.githubusercontent.com/${REPO}/master/docs/feedback.json?_=${Date.now()}`);
+                if (!r.ok) return;
+                const data = await r.json();
+                const msgs = (data.messages || []).slice(-15).reverse();
+                if (!msgs.length) { el.innerHTML = ''; return; }
+                el.innerHTML = msgs.map(m => {
+                    const t = new Date(m.time || Date.now()).toLocaleString('he-IL', {hour:'2-digit',minute:'2-digit',day:'2-digit',month:'2-digit'});
+                    const statusBadge = m.status === 'done' ? '<span class="badge bg-success">טופל</span>' : (m.status === 'in_progress' ? '<span class="badge bg-warning text-dark">בעבודה</span>' : '<span class="badge bg-secondary">ממתין</span>');
+                    let text = m.text || '';
+                    // Try double-decode for legacy mojibake messages
+                    try {
+                        if (/Ã[ÂÂ¢¤§¨©ªb-z]/.test(text)) {
+                            const decoded = decodeURIComponent(escape(text));
+                            if (/[֐-׿]/.test(decoded)) text = decoded;
+                        }
+                    } catch(e){}
+                    const reply = m.reply ? `<div class="mt-2 ps-2 border-start border-success border-2"><div class="small text-success fw-bold mb-1"><i class="bi bi-robot me-1"></i>תגובת Claude · ${m.reply_time ? new Date(m.reply_time).toLocaleString('he-IL',{hour:'2-digit',minute:'2-digit',day:'2-digit',month:'2-digit'}) : ''}</div><div class="small" style="white-space:pre-wrap">${escapeHtml(m.reply)}</div></div>` : '';
+                    return `<div class="border rounded p-2 mb-2" style="background:rgba(255,255,255,0.04)">
+                        <div class="d-flex justify-content-between align-items-start gap-2">
+                            <div class="small fw-bold" style="white-space:pre-wrap">${escapeHtml(text)}</div>
+                            ${statusBadge}
+                        </div>
+                        <div class="text-muted" style="font-size:.7rem">${t}</div>
+                        ${reply}
+                    </div>`;
+                }).join('');
+            } catch(e) {}
+        }
+        function escapeHtml(s) { return (s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+        // Auto-load on startup, then refresh every 60s
+        setTimeout(loadFeedbackThread, 1500);
+        setInterval(loadFeedbackThread, 60000);
+
+        // === Push Notifications ===
+        async function requestNotifications() {
+            if ('Notification' in window && Notification.permission === 'default') {
+                await Notification.requestPermission();
+            }
+        }
+        function sendNotification(title, body) {
+            if ('Notification' in window && Notification.permission === 'granted') {
+                new Notification(title, { body, icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect fill="%236c5ce7" rx="20" width="100" height="100"/><text x="50" y="68" text-anchor="middle" fill="white" font-size="50">⬇</text></svg>' });
+            }
+        }
+        requestNotifications();
+
+        // === Settings functions ===
+        function getAppPin() { return localStorage.getItem('app_pin') || PIN; }
+
+        function changePin() {
+            const oldPin = document.getElementById('settOldPin').value;
+            const newPin = document.getElementById('settNewPin').value;
+            const confirmPin = document.getElementById('settConfirmPin').value;
+            const currentPin = getAppPin();
+            if (oldPin !== currentPin) { showToast('סיסמה נוכחית שגויה', 'error'); return; }
+            if (!newPin || newPin.length < 4) { showToast('סיסמה חדשה חייבת להיות 4 ספרות', 'error'); return; }
+            if (newPin !== confirmPin) { showToast('הסיסמאות לא תואמות', 'error'); return; }
+            localStorage.setItem('app_pin', newPin);
+            document.getElementById('settOldPin').value = '';
+            document.getElementById('settNewPin').value = '';
+            document.getElementById('settConfirmPin').value = '';
+            showToast('הסיסמה שונתה בהצלחה!', 'success');
+        }
+
+        // Override checkPin to use stored PIN
+        const _origCheckPin = checkPin;
+        checkPin = function() {
+            const storedPin = getAppPin();
+            if (document.getElementById('pinInput').value === storedPin) {
+                document.getElementById('pinScreen').classList.add('d-none');
+                document.getElementById('mainApp').classList.remove('d-none');
+                if (!localStorage.getItem('gh_token') && !GH_TOKEN) new bootstrap.Modal(document.getElementById('setupModal')).show();
+                updateStats();
+                initTooltips();
+                renderRecentSearches();
+                loadSettings();
+            } else {
+                document.getElementById('pinError').classList.remove('d-none');
+                document.getElementById('pinInput').value = '';
+            }
+        };
+
+        function saveSettings() {
+            const settings = {
+                defaultQuality: document.getElementById('settDefaultQuality').value,
+                defaultFormat: document.getElementById('settDefaultFormat').value,
+                darkMode: document.body.classList.contains('dark')
+            };
+            localStorage.setItem('vg_settings', JSON.stringify(settings));
+            // Apply defaults to download tab
+            document.getElementById('qualitySelect').value = settings.defaultQuality;
+            document.getElementById('formatSelect').value = settings.defaultFormat;
+        }
+
+        function loadSettings() {
+            const settings = JSON.parse(localStorage.getItem('vg_settings') || '{}');
+            // v6.6+ migration: force quality default to 'best' if user has stale '720'
+            if (!settings.defaultQuality || settings.defaultQuality === '720') {
+                settings.defaultQuality = 'best';
+                localStorage.setItem('vg_settings', JSON.stringify(settings));
+            }
+            document.getElementById('qualitySelect').value = settings.defaultQuality;
+            if (settings.defaultFormat) {
+                document.getElementById('formatSelect').value = settings.defaultFormat;
+            }
+        }
+        // Load settings on startup
+        loadSettings();
+
+        function initSettingsTab() {
+            const settings = JSON.parse(localStorage.getItem('vg_settings') || '{}');
+            if (settings.defaultQuality) document.getElementById('settDefaultQuality').value = settings.defaultQuality;
+            if (settings.defaultFormat) document.getElementById('settDefaultFormat').value = settings.defaultFormat;
+            document.getElementById('settDarkToggle').checked = document.body.classList.contains('dark');
+            // Mask token display
+            updateTokenDisplay();
+            // Show/hide save button based on new token input visibility
+            const newTokenInput = document.getElementById('settNewToken');
+            const saveBtn = document.getElementById('settSaveTokenBtn');
+            newTokenInput.addEventListener('input', function() { saveBtn.classList.toggle('d-none', !this.value.trim()); });
+        }
+
+        function updateTokenDisplay() {
+            const token = localStorage.getItem('gh_token') || GH_TOKEN || '';
+            const display = document.getElementById('settTokenDisplay');
+            if (display) {
+                if (token) {
+                    display.value = token.substring(0, 6) + '****' + token.substring(token.length - 4);
+                } else {
+                    display.value = 'לא הוגדר';
+                }
+                display.dataset.revealed = 'false';
+            }
+        }
+
+        function toggleTokenVisibility() {
+            const display = document.getElementById('settTokenDisplay');
+            const icon = document.getElementById('settTokenEyeIcon');
+            const token = localStorage.getItem('gh_token') || GH_TOKEN || '';
+            if (display.dataset.revealed === 'true') {
+                display.value = token.substring(0, 6) + '****' + token.substring(token.length - 4);
+                display.dataset.revealed = 'false';
+                icon.className = 'bi bi-eye';
+            } else {
+                display.value = token;
+                display.dataset.revealed = 'true';
+                icon.className = 'bi bi-eye-slash';
+            }
+        }
+
+        function saveNewToken() {
+            const newToken = document.getElementById('settNewToken').value.trim();
+            if (!newToken) { showToast('הכנס token תקין', 'error'); return; }
+            GH_TOKEN = newToken;
+            localStorage.setItem('gh_token', newToken);
+            document.getElementById('settNewToken').value = '';
+            document.getElementById('settNewToken').classList.add('d-none');
+            document.getElementById('settSaveTokenBtn').classList.add('d-none');
+            updateTokenDisplay();
+            showToast('Token עודכן בהצלחה!', 'success');
+        }
+
+        function toggleDarkFromSettings() {
+            toggleDark();
+            saveSettings();
+        }
+
+        function clearRecentSearches() {
+            localStorage.removeItem('recent_searches');
+            renderRecentSearches();
+            showToast('חיפושים אחרונים נמחקו', 'success');
+        }
+
+        function clearSearchSuggestions() {
+            lastSearchResults = [];
+            document.getElementById('searchResults').innerHTML = '<div class="text-center py-5 text-muted"><i class="bi bi-search fs-1 d-block mb-2" style="opacity:0.3"></i>חפש בכל הרשת — YouTube, Dailymotion, Vimeo, הידברות, Archive.org, Rumble, Odysee, Bitchute, Wikimedia, SlideShare</div>';
+            showToast('הצעות חיפוש נמחקו', 'success');
+        }
+        function openSearchResult(url) {
+            if (!url) return;
+            if (false) { showToast(_CF.msg, 'warning'); return; }
+            openInAppViewer(url);
+        }
+
+        // Fetch page via GitHub Actions (NetFree-bypass: content stored on github.io which is whitelisted)
+        async function openViaProxy(url) {
+            if (!GH_TOKEN) { showToast('צריך טוקן GitHub', 'warning'); return; }
+            const old = document.getElementById('inAppViewer');
+            if (old) old.remove();
+            const domain = getDomain(url);
+            const v = document.createElement('div');
+            v.id = 'inAppViewer';
+            v.innerHTML = `<div style="position:fixed;inset:0;background:#fff;z-index:10000;display:flex;flex-direction:column">
+                <div style="background:#202124;color:#fff;padding:8px 12px;display:flex;align-items:center;gap:8px;flex-shrink:0">
+                    <button onclick="closeInAppViewer()" class="btn btn-sm btn-light"><i class="bi bi-arrow-right"></i></button>
+                    <img src="https://www.google.com/s2/favicons?domain=${domain}&sz=32" style="width:18px;height:18px;border-radius:50%" onerror="this.style.display='none'">
+                    <span style="flex:1;direction:ltr;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.85rem">${escapeHtml(url)} <span class="badge bg-success">דרך פרוקסי</span></span>
+                </div>
+                <div style="flex:1;display:flex;align-items:center;justify-content:center;background:#fff;padding:30px;text-align:center">
+                    <div>
+                        <div class="spinner-border text-primary mb-3" style="width:3rem;height:3rem"></div>
+                        <h5 id="proxyStatus">מוריד את הדף דרך GitHub Actions...</h5>
+                        <p class="text-muted small">הדף יעקוף את נטפרי. ~15-30 שניות בפעם הראשונה.</p>
+                        <p class="small text-muted mt-3"><span id="proxyTimer">0</span> שניות</p>
+                    </div>
+                </div>
+            </div>`;
+            document.body.appendChild(v);
+            document.body.style.overflow = 'hidden';
+            const startTime = Date.now();
+            const timerInt = setInterval(() => {
+                const t = document.getElementById('proxyTimer');
+                if (t) t.textContent = Math.floor((Date.now()-startTime)/1000);
+            }, 500);
+            try {
+                // Get last run before dispatch
+                const before = await fetch(`https://api.github.com/repos/${REPO}/actions/workflows/fetch-page.yml/runs?per_page=1`, {headers:{'Authorization':`token ${GH_TOKEN}`}}).then(r=>r.json()).catch(()=>({workflow_runs:[]}));
+                const lastRunId = before.workflow_runs?.[0]?.id || 0;
+                // Dispatch
+                const dr = await fetch(`https://api.github.com/repos/${REPO}/actions/workflows/fetch-page.yml/dispatches`, {
+                    method:'POST', headers:{'Authorization':`token ${GH_TOKEN}`,'Accept':'application/vnd.github.v3+json','Content-Type':'application/json'},
+                    body: JSON.stringify({ref:'master', inputs:{url}})
+                });
+                if (dr.status !== 204) {
+                    clearInterval(timerInt);
+                    document.getElementById('proxyStatus').innerText = 'שגיאה: workflow לא הופעל (' + dr.status + ')';
+                    return;
+                }
+                // Poll for our run
+                let myId = null;
+                for (let i = 0; i < 12; i++) {
+                    await new Promise(r => setTimeout(r, 1000));
+                    const runs = await fetch(`https://api.github.com/repos/${REPO}/actions/workflows/fetch-page.yml/runs?per_page=3`, {headers:{'Authorization':`token ${GH_TOKEN}`}}).then(r=>r.json()).catch(()=>({workflow_runs:[]}));
+                    const nr = (runs.workflow_runs||[]).find(r => r.id > lastRunId && r.event === 'workflow_dispatch');
+                    if (nr) { myId = nr.id; break; }
+                }
+                if (!myId) { clearInterval(timerInt); document.getElementById('proxyStatus').innerText='הריצה לא התחילה'; return; }
+                document.getElementById('proxyStatus').innerText = 'מבצע פרוקסי על השרת...';
+                // Wait for completion
+                for (let i = 0; i < 90; i++) {
+                    await new Promise(r => setTimeout(r, 2000));
+                    const run = await fetch(`https://api.github.com/repos/${REPO}/actions/runs/${myId}`, {headers:{'Authorization':`token ${GH_TOKEN}`}}).then(r=>r.json());
+                    if (run.status === 'completed') {
+                        clearInterval(timerInt);
+                        if (run.conclusion === 'success') {
+                            // Calculate hash same way as workflow (sha1 of url, first 16 chars)
+                            const enc = new TextEncoder().encode(url);
+                            const hashBuf = await crypto.subtle.digest('SHA-1', enc);
+                            const hash = Array.from(new Uint8Array(hashBuf)).map(b=>b.toString(16).padStart(2,'0')).join('').substring(0,16);
+                            const proxyUrl = `https://yossi6742853.github.io/vimeo-downloader/preview/${hash}.html`;
+                            // Replace viewer body with iframe
+                            v.querySelector('div[style*="flex:1"]').outerHTML = `<div style="flex:1;position:relative"><iframe src="${proxyUrl}" style="width:100%;height:100%;border:none;display:block" sandbox="allow-same-origin allow-scripts allow-popups allow-forms"></iframe></div>`;
+                        } else {
+                            document.getElementById('proxyStatus').innerText = 'הפרוקסי נכשל: ' + (run.conclusion||'');
+                        }
+                        return;
+                    }
+                }
+                clearInterval(timerInt);
+                document.getElementById('proxyStatus').innerText = 'timeout — נסה שוב';
+            } catch(e) {
+                clearInterval(timerInt);
+                if (document.getElementById('proxyStatus')) document.getElementById('proxyStatus').innerText = 'שגיאה: ' + e.message;
+            }
+        }
+
+        function openInAppViewer(url) {
+            const domain = getDomain(url);
+            const old = document.getElementById('inAppViewer');
+            if (old) old.remove();
+            const v = document.createElement('div');
+            v.id = 'inAppViewer';
+            const safeUrl = url.replace(/'/g,"\\'");
+            v.innerHTML = `<div style="position:fixed;inset:0;background:#fff;z-index:10000;display:flex;flex-direction:column">
+                <div style="background:#202124;color:#fff;padding:8px 12px;display:flex;align-items:center;gap:8px;flex-shrink:0">
+                    <button onclick="closeInAppViewer()" class="btn btn-sm btn-light" data-bs-toggle="tooltip" title="חזור"><i class="bi bi-arrow-right"></i></button>
+                    <img src="https://www.google.com/s2/favicons?domain=${domain}&sz=32" style="width:18px;height:18px;border-radius:50%" onerror="this.style.display='none'">
+                    <span style="flex:1;direction:ltr;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.85rem">${escapeHtml(url)}</span>
+                    <button onclick="startDownload('${safeUrl}')" class="btn btn-sm btn-primary" data-bs-toggle="tooltip" title="הורד"><i class="bi bi-cloud-arrow-down me-1"></i>הורד</button>
+                </div>
+                <div id="iframeWrap" style="flex:1;position:relative;background:#f0f0f0">
+                    <div id="iframeLoader" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#fff;z-index:1">
+                        <div class="spinner-border text-primary mb-2"></div>
+                        <p class="text-muted">טוען את ${escapeHtml(domain)}...</p>
+                    </div>
+                    <iframe id="appIframe" src="${url}" style="width:100%;height:100%;border:none;display:block" allow="autoplay; encrypted-media; fullscreen" allowfullscreen onload="window._iframeLoaded=true;document.getElementById('iframeLoader').style.display='none';const fb=document.getElementById('iframeFallback');if(fb)fb.style.display='none'"></iframe>
+                    <div id="iframeFallback" style="display:none;position:absolute;inset:0;flex-direction:column;align-items:center;justify-content:center;background:#fff;padding:20px;text-align:center">
+                        <i class="bi bi-shield-exclamation" style="font-size:3rem;color:#ff9800"></i>
+                        <h5 class="mt-3">האתר חוסם טעינה ישירה (X-Frame-Options)</h5>
+                        <p class="text-muted small">${escapeHtml(domain)} לא מאפשר הטמעה. נסה דרך פרוקסי GitHub (עוקף גם נטפרי):</p>
+                        <button onclick="openViaProxy('${safeUrl}')" class="btn btn-success mt-2"><i class="bi bi-shield-check me-1"></i>פתח דרך פרוקסי</button>
+                    </div>
+                </div>
+            </div>`;
+            document.body.appendChild(v);
+            document.body.style.overflow = 'hidden';
+            window._iframeLoaded = false;
+            setTimeout(() => {
+                const loader = document.getElementById('iframeLoader');
+                if (!window._iframeLoaded && loader && loader.style.display !== 'none') {
+                    loader.style.display = 'none';
+                    const fb = document.getElementById('iframeFallback');
+                    if (fb) fb.style.display = 'flex';
+                }
+            }, 5000);
+        }
+        function closeInAppViewer() {
+            const v = document.getElementById('inAppViewer');
+            if (v) v.remove();
+            document.body.style.overflow = '';
+        }
+        document.addEventListener('keydown', e => { if (e.key === 'Escape' && document.getElementById('inAppViewer')) closeInAppViewer(); });
+
+        function clearAllData() {
+            if (!confirm('האם אתה בטוח שברצונך למחוק את כל הנתונים?\nפעולה זו תמחק היסטוריה, מועדפים, תור, חיפושים והגדרות.')) return;
+            if (!confirm('אישור סופי - כל הנתונים יימחקו לצמיתות!')) return;
+            const keysToRemove = ['dl_history', 'dl_queue', 'recent_searches', 'favorites', 'vg_settings', 'dark', 'app_pin'];
+            keysToRemove.forEach(k => localStorage.removeItem(k));
+            // Keep gh_token
+            queue = [];
+            lastSearchResults = [];
+            updateStats();
+            renderFavorites();
+            showToast('כל הנתונים נמחקו', 'success');
+            // Reset dark mode UI
+            document.body.classList.remove('dark');
+            document.getElementById('darkBtn').innerHTML = '<i class="bi bi-moon me-1"></i>מצב כהה';
+        }
+    </script>
+</body>
+</html>

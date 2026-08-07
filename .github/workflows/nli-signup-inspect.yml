@@ -1,0 +1,20 @@
+name: NLI Signup Inspect
+on: workflow_dispatch
+
+permissions: { contents: write }
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      flaresolverr:
+        image: ghcr.io/flaresolverr/flaresolverr:latest
+        ports: [ "8191:8191" ]
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install requests
+      - run: for i in $(seq 1 30); do curl -fs http://localhost:8191/ >/dev/null 2>&1 && break; sleep 2; done
+      - env:
+          FLARESOLVERR_URL: http://localhost:8191/v1
+        run: python3 nli_signup_inspect.py

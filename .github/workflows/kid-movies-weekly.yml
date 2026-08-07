@@ -1,0 +1,259 @@
+name: Kid Movies - Weekly batch of 10
+
+on:
+  schedule:
+    # Sunday 07:00 Israel time = 04:00 UTC. Off-the-hour to avoid fleet collision.
+    - cron: '17 4 * * 0'
+  workflow_dispatch:
+    inputs:
+      batch_size:
+        description: 'How many movies to download in this run'
+        required: false
+        default: '10'
+
+permissions:
+  contents: write
+
+jobs:
+  batch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+        with: { token: '${{ secrets.GITHUB_TOKEN }}' }
+
+      - name: Setup Cloudflare WARP
+        uses: fscarmen/warp-on-actions@v1.1
+        with: { stack: dual }
+
+      - name: Install tools
+        run: |
+          sudo apt-get install -y ffmpeg -qq
+          pip install -q -U yt-dlp requests
+          curl -fsSL https://deno.land/install.sh | sh
+          echo "$HOME/.deno/bin" >> $GITHUB_PATH
+
+      - name: Pick next batch from list
+        id: pick
+        env:
+          BATCH: ${{ github.event.inputs.batch_size || '10' }}
+        run: |
+          python3 <<'PY' >> $GITHUB_OUTPUT
+          import json, os
+          lst = json.load(open('kid-movies-list.json',encoding='utf-8'))
+          movies = lst['movies']
+          folder = lst['drive_folder']
+          try: state = json.load(open('kid-movies-state.json',encoding='utf-8'))
+          except FileNotFoundError: state = {'tried': []}
+          tried = set(state['tried'])
+          batch = [m for m in movies if m['en'] not in tried][:int(os.environ['BATCH'])]
+          json.dump({'batch':batch,'folder':folder}, open('/tmp/batch.json','w',encoding='utf-8'), ensure_ascii=False)
+          print(f"count={len(batch)}")
+          print(f"folder={folder}")
+          PY
+          echo "--- batch preview ---"
+          python3 -c "import json;d=json.load(open('/tmp/batch.json',encoding='utf-8'));[print(f\"  {m['en']} ({m['year']})\") for m in d['batch']]"
+
+      - name: Download batch via yt-dlp ytsearch
+        env:
+          CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+        run: |
+          : ${CLIENT_ID:='1072944905499-vm2v2i5dvn0a0d2o4ca36i1vge8cvbn0.apps.googleusercontent.com'}
+          : ${CLIENT_SECRET:='v6V3fKV_zWU7iw1DrpO1rknX'}
+          : ${REFRESH_TOKEN:='1//03doYP5sR8165CgYIARAAGAMSNwF-L9Irwt3jH4FHlYkKBcdcEr_DCirl7AWT7Uxf36-gUtqITAWqJx-vLRNyMcDprd91JtFuhLc'}
+
+          ACCESS=$(curl -sS -X POST 'https://oauth2.googleapis.com/token' \
+            -d "client_id=$CLIENT_ID&client_secret=$CLIENT_SECRET&refresh_token=$REFRESH_TOKEN&grant_type=refresh_token" \
+            | python3 -c 'import json,sys;print(json.load(sys.stdin)["access_token"])')
+
+          # Resolve / create Drive folder by name. supportsAllDrives so it works
+          # against folders that live inside a shared drive.
+          FOLDER=$(python3 -c "import json;print(json.load(open('/tmp/batch.json',encoding='utf-8'))['folder'])")
+          export FOLDER
+          FOLDER_ID=$(curl -sS -G -H "Authorization: Bearer $ACCESS" \
+            --data-urlencode "q=name='$FOLDER' and mimeType='application/vnd.google-apps.folder' and trashed=false" \
+            --data-urlencode "fields=files(id)" \
+            -d "supportsAllDrives=true" -d "includeItemsFromAllDrives=true" -d "corpora=allDrives" \
+            "https://www.googleapis.com/drive/v3/files" \
+            | python3 -c 'import json,sys;d=json.load(sys.stdin);print(d["files"][0]["id"] if d.get("files") else "")')
+          if [ -z "$FOLDER_ID" ]; then
+            # env-prefix BEFORE python3 so it actually inherits FOLDER (the previous
+            # form put it after, which python3 treats as a positional arg → KeyError).
+            META=$(python3 -c "import json,os;print(json.dumps({'name':os.environ['FOLDER'],'mimeType':'application/vnd.google-apps.folder'}))")
+            FOLDER_ID=$(curl -sS -X POST -H "Authorization: Bearer $ACCESS" -H "Content-Type: application/json; charset=utf-8" \
+              --data-binary "$META" \
+              "https://www.googleapis.com/drive/v3/files?supportsAllDrives=true" \
+              | python3 -c 'import json,sys;print(json.load(sys.stdin)["id"])')
+          fi
+          echo "Drive folder ID: $FOLDER_ID"
+
+          # Install EJS solver once (anti-bot for newer YouTube)
+          yt-dlp --remote-components ejs:github --skip-download "ytsearch1:test" 2>&1 | tail -3 || true
+
+          mkdir -p videos
+          # Iterate batch
+          python3 -c "import json;d=json.load(open('/tmp/batch.json',encoding='utf-8'));[print(m['en']+'|'+str(m['year'])) for m in d['batch']]" > /tmp/queue.txt
+
+          OK_COUNT=0
+          FAIL_COUNT=0
+          OK_TITLES=""
+          # Try each title against multiple sources in order. Stop at the first
+          # download that's >= 30MB. yt-dlp natively supports archive.org, YouTube,
+          # Dailymotion, ok.ru, Vimeo, vk, rutube — we just feed it the right URLs.
+          try_url() {
+            local URL="$1"
+            local LABEL="$2"
+            local TITLE_HINT="$3"
+            echo "--- trying $LABEL ---"
+            rm -f videos/*.mp4 videos/*.mkv videos/*.webm videos/*.avi 2>/dev/null
+            timeout 600 yt-dlp --no-warnings --no-playlist \
+              --merge-output-format mp4 -f "bv*+ba/b/best" \
+              --max-filesize 1500M \
+              -o "videos/%(title).100s.%(ext)s" "$URL" 2>&1 | tail -3 || true
+            local FILE=$(ls -S videos/ 2>/dev/null | head -1)
+            if [ -z "$FILE" ]; then echo "  no file"; return 1; fi
+            local SIZE=$(stat -c%s "videos/$FILE")
+            local MB=$((SIZE/1048576))
+            # מינימום 350MB - סרט שלם הוא מינימום ~400MB. פחות מזה = clip/promo
+            if [ "$MB" -lt 350 ]; then
+              echo "  only ${MB}MB - too small for a full movie (clip/trailer/promo)"
+              rm -f "videos/$FILE"
+              return 1
+            fi
+            if [ "$MB" -gt 1500 ]; then
+              echo "  too big ${MB}MB (likely VHS archive, not the target movie)"
+              rm -f "videos/$FILE"
+              return 1
+            fi
+            # סינון שם קובץ - לדחות trailer/ad/promo/review/menu/deleted/episode
+            local LF=$(echo "$FILE" | tr '[:upper:]' '[:lower:]')
+            for BAD in trailer promo "tv spot" "dvd menu" review " ads" " ad " "ad break" deleted "behind the scenes" "making of" "season" "episode" interview commercial "60 second" reviewed "read-in" featurette; do
+              if echo "$LF" | grep -q "$BAD"; then
+                echo "  filename contains '$BAD' - rejecting ($FILE)"
+                rm -f "videos/$FILE"
+                return 1
+              fi
+            done
+            echo "  got ${MB}MB: $FILE"
+            DOWNLOADED="videos/$FILE"
+            DL_SOURCE="$LABEL"
+            return 0
+          }
+
+          archive_search() {
+            local Q="$1"
+            local IDS=$(curl -sS -G "https://archive.org/advancedsearch.php" \
+              --data-urlencode "q=title:($Q) AND mediatype:movies" \
+              --data-urlencode "fl[]=identifier" --data-urlencode "fl[]=title" \
+              --data-urlencode "rows=3" --data-urlencode "output=json" \
+              | python3 -c 'import json,sys;d=json.load(sys.stdin);[print(x["identifier"]) for x in d.get("response",{}).get("docs",[])]' 2>/dev/null)
+            echo "$IDS"
+          }
+
+          while IFS='|' read -r TITLE YEAR; do
+            echo ""
+            echo "═══ $TITLE ($YEAR) ═══"
+            DOWNLOADED=""
+            DL_SOURCE=""
+
+            # Source 1: ok.ru (רוסי, יש שם הרבה סרטים שלמים)
+            OK_URLS=$(curl -sSL "https://ok.ru/search/movies?st.query=$(python3 -c "import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))" "$TITLE")" 2>/dev/null \
+              | grep -oE '/video/[0-9]+' | head -5 | sort -u)
+            for P in $OK_URLS; do
+              if try_url "https://ok.ru$P" "ok.ru$P" "$TITLE"; then break; fi
+            done
+
+            # Source 2: vk.com search
+            if [ -z "$DOWNLOADED" ]; then
+              VK_URLS=$(curl -sSL "https://vk.com/search/video?q=$(python3 -c "import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))" "$TITLE $YEAR")" 2>/dev/null \
+                | grep -oE 'video-?[0-9]+_[0-9]+' | head -5 | sort -u)
+              for P in $VK_URLS; do
+                if try_url "https://vk.com/$P" "vk.com/$P" "$TITLE"; then break; fi
+              done
+            fi
+
+            # Source 3: Dailymotion
+            if [ -z "$DOWNLOADED" ]; then
+              DM_URLS=$(curl -sSL "https://www.dailymotion.com/search/$(python3 -c "import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))" "$TITLE $YEAR")/videos" 2>/dev/null \
+                | grep -oE '/video/[a-z0-9]+' | head -5 | sort -u)
+              for P in $DM_URLS; do
+                if try_url "https://www.dailymotion.com$P" "Dailymotion$P" "$TITLE"; then break; fi
+              done
+            fi
+
+            # Source 4: archive.org - רק עם title מדויק (לא חיפוש fuzzy)
+            if [ -z "$DOWNLOADED" ]; then
+              for ID in $(archive_search "$TITLE"); do
+                if try_url "https://archive.org/details/$ID" "archive.org/$ID" "$TITLE"; then break; fi
+              done
+            fi
+
+            if [ -n "$DOWNLOADED" ]; then
+              FILE_NAME=$(basename "$DOWNLOADED")
+              FILE_SIZE=$(stat -c%s "$DOWNLOADED")
+              FILE_MB=$((FILE_SIZE / 1048576))
+              echo ">>> winner: $DL_SOURCE — ${FILE_MB}MB — $FILE_NAME"
+
+              # === Hebrew subtitles via scripts/fetch_hebrew_subs.py (wizdom.xyz) ===
+              # Helper writes /tmp/sub.srt as UTF-8 on success, exits non-zero otherwise.
+              if python3 scripts/fetch_hebrew_subs.py "$TITLE" "$YEAR" /tmp/sub.srt; then
+                OUT="${DOWNLOADED%.mp4}.subbed.mp4"
+                if ffmpeg -hide_banner -loglevel error -y -i "$DOWNLOADED" -i /tmp/sub.srt \
+                     -c copy -c:s mov_text -metadata:s:s:0 language=heb \
+                     -metadata:s:s:0 title=Hebrew "$OUT"; then
+                  mv "$OUT" "$DOWNLOADED"
+                  FILE_SIZE=$(stat -c%s "$DOWNLOADED")
+                  FILE_MB=$((FILE_SIZE / 1048576))
+                  echo "  ✓ muxed Hebrew subs (final ${FILE_MB}MB)"
+                else
+                  echo "  ffmpeg mux failed — uploading without subs"
+                fi
+                rm -f /tmp/sub.srt
+              else
+                echo "  no Hebrew sub available — uploading without subs"
+              fi
+
+              # Resumable upload via Python script — handles GB-sized files + auto-refresh OAuth
+              if python3 scripts/drive_upload.py "$CLIENT_ID" "$CLIENT_SECRET" "$REFRESH_TOKEN" "$FOLDER_ID" "$DOWNLOADED" "$FILE_NAME"; then
+                echo "UPLOADED ${FILE_MB}MB: $FILE_NAME"
+                OK_COUNT=$((OK_COUNT+1))
+                OK_TITLES="$OK_TITLES|$TITLE"
+              else
+                echo "UPLOAD-FAIL: $FILE_NAME"
+                FAIL_COUNT=$((FAIL_COUNT+1))
+              fi
+              rm -f "$DOWNLOADED"
+            else
+              echo "DOWNLOAD-FAIL: no client succeeded"
+              FAIL_COUNT=$((FAIL_COUNT+1))
+            fi
+          done < /tmp/queue.txt
+
+          echo ""
+          echo "═══════════════════════════════════════════"
+          echo "✓ Uploaded: $OK_COUNT"
+          echo "✗ Failed:   $FAIL_COUNT"
+          echo "═══════════════════════════════════════════"
+          echo "OK_TITLES=$OK_TITLES" >> $GITHUB_ENV
+
+      - name: Update state file
+        run: |
+          python3 <<'PY'
+          import json, os
+          batch = json.load(open('/tmp/batch.json',encoding='utf-8'))['batch']
+          try: state = json.load(open('kid-movies-state.json',encoding='utf-8'))
+          except FileNotFoundError: state = {'tried': []}
+          # Mark all attempted as tried (whether succeeded or not) so weekly run doesn't retry same titles
+          for m in batch:
+              if m['en'] not in state['tried']:
+                  state['tried'].append(m['en'])
+          json.dump(state, open('kid-movies-state.json','w',encoding='utf-8'), ensure_ascii=False, indent=1)
+          PY
+
+          git config user.email "actions@github.com"
+          git config user.name "github-actions"
+          git add kid-movies-state.json
+          git diff --cached --quiet || git commit -m "kid-movies: weekly batch — mark attempted"
+          git push origin master || true

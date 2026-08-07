@@ -1,0 +1,25 @@
+name: NLI Auto Signup
+on: workflow_dispatch
+
+permissions: { contents: write }
+
+jobs:
+  signup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      flaresolverr:
+        image: ghcr.io/flaresolverr/flaresolverr:latest
+        ports: [ "8191:8191" ]
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install requests playwright && playwright install chromium
+      - run: for i in $(seq 1 30); do curl -fs http://localhost:8191/ >/dev/null 2>&1 && break; sleep 2; done
+      - run: python3 nli_signup_playwright.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: signup-response
+          path: |
+            _signup_form.html
+            _signup_response.html
+            _signup_final.html

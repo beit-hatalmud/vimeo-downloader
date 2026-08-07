@@ -1,0 +1,243 @@
+name: Crawl Site - Download up to 100 videos from any website
+
+on:
+  workflow_dispatch:
+    inputs:
+      site_url:
+        description: 'URL של הדף או האתר שיש בו סרטונים'
+        required: true
+      max_videos:
+        description: 'מקסימום סרטונים להוריד'
+        required: false
+        default: '100'
+      drive_folder:
+        description: 'תיקיית Drive (שם — או השאר ריק אם נותן ID)'
+        required: false
+        default: 'site_videos'
+      drive_folder_id:
+        description: 'Drive folder ID — עוקף את החיפוש לפי שם (לעברית/יוניקוד)'
+        required: false
+        default: ''
+      format:
+        description: 'yt-dlp format'
+        required: false
+        default: 'best'
+
+permissions:
+  contents: read
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Install yt-dlp + ffmpeg + parallel
+        run: |
+          sudo apt-get update -qq || true
+          sudo apt-get install -y --no-install-recommends ffmpeg parallel -qq || \
+            sudo apt-get install -y --fix-missing ffmpeg parallel -qq || true
+          pip install -U yt-dlp requests beautifulsoup4 --quiet
+
+      - name: Crawl site for video pages
+        id: crawl
+        env:
+          SITE: ${{ github.event.inputs.site_url }}
+          MAX: ${{ github.event.inputs.max_videos }}
+        run: |
+          # STRATEGY A: try yt-dlp directly on the URL with --flat-playlist
+          # This is FAST and works for many sites (channels, playlists, video aggregators)
+          echo "--- Strategy A: yt-dlp playlist extraction ---"
+          if timeout 60 yt-dlp --flat-playlist --no-warnings --quiet \
+              --playlist-end $((MAX * 2)) \
+              --print "%(url)s" "$SITE" > candidates.txt 2>/dev/null; then
+            LINES=$(wc -l < candidates.txt)
+            echo "yt-dlp playlist extraction: $LINES candidates"
+          else
+            echo "yt-dlp playlist mode failed - falling back to crawl"
+            echo "" > candidates.txt
+          fi
+
+          # STRATEGY B: if A didn't get enough, run sitemap + BFS crawl
+          if [ $(wc -l < candidates.txt) -lt $MAX ]; then
+            echo "--- Strategy B: sitemap + BFS crawl ---"
+            python3 << 'PY'
+          import os, re, urllib.parse, requests
+          from bs4 import BeautifulSoup
+          from collections import deque
+
+          START = os.environ['SITE']
+          MAX = int(os.environ.get('MAX') or 100)
+          UA = {'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0 Safari/537.36'}
+
+          # Read existing
+          existing = []
+          try:
+              with open('candidates.txt') as f:
+                  existing = [l.strip() for l in f if l.strip()]
+          except: pass
+          video_pages = list(existing)
+          seen = set(existing)
+          domain = urllib.parse.urlparse(START).netloc.replace('www.','')
+
+          # Sitemap
+          for sm in [f'https://{domain}/sitemap.xml', f'https://{domain}/sitemap_index.xml',
+                     f'https://{domain}/video-sitemap.xml', f'https://{domain}/sitemap-1.xml']:
+              if len(video_pages) >= MAX * 3: break
+              try:
+                  r = requests.get(sm, headers=UA, timeout=8)
+                  if r.status_code == 200:
+                      for m in re.finditer(r'<loc>([^<]+)</loc>', r.text):
+                          u = m.group(1).strip()
+                          if u not in seen:
+                              seen.add(u); video_pages.append(u)
+                      print(f'  sitemap {sm}: total {len(video_pages)}')
+              except: pass
+
+          # BFS
+          if len(video_pages) < MAX * 2:
+              visited = set()
+              queue = deque([START])
+              while queue and len(video_pages) < MAX * 3:
+                  if len(visited) > 300: break
+                  url = queue.popleft()
+                  if url in visited: continue
+                  visited.add(url)
+                  try:
+                      r = requests.get(url, headers=UA, timeout=6)
+                      if r.status_code != 200: continue
+                      soup = BeautifulSoup(r.text, 'html.parser')
+                      for a in soup.find_all('a', href=True):
+                          href = urllib.parse.urljoin(url, a['href']).split('#')[0]
+                          if href in seen: continue
+                          parsed = urllib.parse.urlparse(href)
+                          if parsed.netloc.replace('www.','') != domain: continue
+                          seen.add(href)
+                          KEYWORDS = ['video','watch','clip','play','shiur','lesson','sirton','שיעור','סרטון','vid_','/v/','/post/','/article/','/page/']
+                          if any(k in href.lower() for k in KEYWORDS):
+                              video_pages.append(href)
+                          elif len(queue) < 80:
+                              queue.append(href)
+                  except: pass
+
+          # Always include the START URL as a candidate (in case it IS a video page)
+          if START not in seen:
+              video_pages.insert(0, START)
+
+          video_pages = list(dict.fromkeys(video_pages))[:MAX*3]
+          with open('candidates.txt','w') as f:
+              for u in video_pages:
+                  f.write(u + '\n')
+          print(f'Total candidates: {len(video_pages)}')
+          PY
+          fi
+          echo "candidates=$(wc -l < candidates.txt)" >> $GITHUB_OUTPUT
+
+      - name: Download videos with yt-dlp
+        env:
+          MAX: ${{ github.event.inputs.max_videos }}
+          FORMAT: ${{ github.event.inputs.format }}
+          CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+        run: |
+          # SECURITY 2026-07-08: hardcoded fallback credentials removed.
+          if [ -z "$CLIENT_ID" ] || [ -z "$CLIENT_SECRET" ] || [ -z "$REFRESH_TOKEN" ]; then
+            echo "::error::Google OAuth secrets not set on this repo. Aborting."; exit 1
+          fi
+
+          ACCESS=$(curl -sS -X POST 'https://oauth2.googleapis.com/token' \
+            -d "client_id=$CLIENT_ID&client_secret=$CLIENT_SECRET&refresh_token=$REFRESH_TOKEN&grant_type=refresh_token" \
+            | python3 -c 'import json,sys;print(json.load(sys.stdin)["access_token"])')
+
+          export FOLDER='${{ github.event.inputs.drive_folder }}'
+          FOLDER_ID_INPUT='${{ github.event.inputs.drive_folder_id }}'
+          if [ -n "$FOLDER_ID_INPUT" ]; then
+            FOLDER_ID="$FOLDER_ID_INPUT"
+          else
+            FOLDER_ENC=$(python3 -c "import urllib.parse,os;print(urllib.parse.quote(os.environ['FOLDER']))")
+            FOLDER_ID=$(curl -sS -G -H "Authorization: Bearer $ACCESS" \
+              --data-urlencode "q=name='$FOLDER' and mimeType='application/vnd.google-apps.folder' and trashed=false" \
+              --data-urlencode "fields=files(id)" \
+              "https://www.googleapis.com/drive/v3/files" \
+              | python3 -c 'import json,sys;d=json.load(sys.stdin);print(d["files"][0]["id"] if d.get("files") else "")')
+            if [ -z "$FOLDER_ID" ]; then
+              FOLDER_ID=$(curl -sS -X POST -H "Authorization: Bearer $ACCESS" -H "Content-Type: application/json; charset=utf-8" \
+                --data-binary "$(python3 -c "import json,os;print(json.dumps({'name':os.environ['FOLDER'],'mimeType':'application/vnd.google-apps.folder'}))")" \
+                "https://www.googleapis.com/drive/v3/files" \
+                | python3 -c 'import json,sys;print(json.load(sys.stdin)["id"])')
+            fi
+          fi
+          echo "Drive folder: $FOLDER_ID"
+
+          mkdir -p downloads
+          export ACCESS FOLDER_ID FORMAT MAX
+
+          # Worker function: download + upload one URL
+          download_one() {
+            local URL="$1"
+            local IDX="$2"
+            cd downloads
+            local WORK="work_$$_$IDX"
+            mkdir -p "$WORK" && cd "$WORK"
+            if timeout 90 yt-dlp -f "$FORMAT" --no-warnings --no-playlist --restrict-filenames \
+                -o "%(title)s.%(ext)s" "$URL" 2>/dev/null; then
+              local FILE=$(ls -S 2>/dev/null | head -1)
+              if [ -n "$FILE" ] && [ -s "$FILE" ]; then
+                local MIME=$(file -b --mime-type "$FILE")
+                local BOUNDARY="b$$_$IDX_$RANDOM"
+                {
+                  echo "--$BOUNDARY"
+                  echo "Content-Type: application/json"
+                  echo
+                  python3 -c "import json;print(json.dumps({'name':'$FILE','parents':['$FOLDER_ID']}))"
+                  echo
+                  echo "--$BOUNDARY"
+                  echo "Content-Type: $MIME"
+                  echo
+                  cat "$FILE"
+                  echo
+                  echo "--$BOUNDARY--"
+                } > body.tmp
+                curl -sS -X POST \
+                  -H "Authorization: Bearer $ACCESS" \
+                  -H "Content-Type: multipart/related; boundary=$BOUNDARY" \
+                  --data-binary @body.tmp \
+                  "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name" >/dev/null 2>&1
+                echo "OK: $URL -> $FILE"
+                cd ../..
+                rm -rf "downloads/$WORK"
+                return 0
+              fi
+            fi
+            cd ../..
+            rm -rf "downloads/$WORK"
+            echo "FAIL: $URL"
+            return 1
+          }
+          export -f download_one
+
+          # Limit candidates to MAX*2 (some will fail validation)
+          head -n $((MAX * 2)) candidates.txt > candidates_limited.txt
+
+          # Run 4 downloads in parallel using GNU parallel
+          # Output: "OK: ..." for success, "FAIL: ..." for failure
+          # parallel exits non-zero if ANY job failed — under `bash -e` that kills
+          # the step before counting / printing. `set +e` keeps the step alive.
+          set +e
+          OUT=$(cat -n candidates_limited.txt | parallel -j 4 --colsep '\t' --will-cite \
+            'download_one {2} {1}' 2>&1)
+          PAR_EXIT=$?
+          set -e
+          echo "$OUT"
+          echo "(parallel exit=$PAR_EXIT — non-zero just means some URLs were not real videos)"
+
+          COUNT=$(echo "$OUT" | grep -c '^OK:')
+          FAILED=$(echo "$OUT" | grep -c '^FAIL:')
+
+          if [ -z "$COUNT" ]; then COUNT=0; fi
+          if [ -z "$FAILED" ]; then FAILED=0; fi
+          echo ""
+          echo "═══════════════════════════════════════════"
+          echo "✓ Downloaded: $COUNT videos to Drive folder $FOLDER"
+          echo "✗ Failed: $FAILED URLs (not videos or download failed)"
+          echo "═══════════════════════════════════════════"

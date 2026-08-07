@@ -1,0 +1,176 @@
+name: Podcast RSS - Hovikuach
+on:
+  schedule:
+    - cron: '0 5 * * 0'  # Sunday 05:00 UTC
+  workflow_dispatch:
+    inputs:
+      rss_or_search:
+        description: 'RSS feed URL or search "rephonic:slug" or aggregator URL'
+        required: false
+        default: 'https://feeds.transistor.fm/af70c90f-d8ba-4b6c-8432-ef1d3bdef7b0'
+      drive_folder:
+        description: 'Drive folder'
+        required: false
+        default: 'הויכוח - תוכן אחד'
+
+permissions:
+  contents: read
+
+env:
+  CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+  CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+  REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+
+jobs:
+  download_rss:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Install
+        run: |
+          pip install -U requests feedparser beautifulsoup4
+
+      - name: Find RSS and Download
+        env:
+          INPUT_URL: ${{ github.event.inputs.rss_or_search || 'https://feeds.transistor.fm/af70c90f-d8ba-4b6c-8432-ef1d3bdef7b0' }}
+          FOLDER: ${{ github.event.inputs.drive_folder || 'הויכוח - תוכן אחד' }}
+        run: |
+          mkdir -p audio
+          python3 << 'PYEOF'
+          import os, re, requests, feedparser
+          from bs4 import BeautifulSoup
+          from urllib.parse import urlparse
+
+          input_url = os.environ["INPUT_URL"]
+          ua = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36"}
+
+          # If looks like aggregator, try to extract RSS
+          rss_url = None
+          if input_url.endswith('.xml') or 'rss' in input_url.lower() or 'feed' in input_url.lower():
+              rss_url = input_url
+          else:
+              print(f"Fetching aggregator page: {input_url}")
+              try:
+                  r = requests.get(input_url, headers=ua, timeout=30)
+                  soup = BeautifulSoup(r.text, 'html.parser')
+                  # Try common patterns
+                  link = soup.find('link', {'type': 'application/rss+xml'})
+                  if link and link.get('href'):
+                      rss_url = link['href']
+                  else:
+                      # rephonic specific
+                      for a in soup.find_all('a', href=True):
+                          h = a['href']
+                          if 'feed' in h.lower() or h.endswith('.xml') or '.rss' in h:
+                              rss_url = h
+                              break
+                      # Look in scripts/meta
+                      if not rss_url:
+                          m = re.search(r'(https?://[^\s"\']+(?:\.rss|feed[^\s"\']*\.xml|/rss[^\s"\']*))', r.text)
+                          if m: rss_url = m.group(1)
+              except Exception as e:
+                  print(f"Aggregator fetch failed: {e}")
+
+          if not rss_url:
+              # Try to find via Apple Podcasts search
+              print("No RSS in aggregator. Trying Apple Podcasts search...")
+              try:
+                  r = requests.get("https://itunes.apple.com/search",
+                      params={"term": "הויכוח יידל הירש תוכן אחד", "country": "IL", "media": "podcast", "limit": 5},
+                      headers=ua, timeout=30)
+                  results = r.json().get('results', [])
+                  for it in results:
+                      if 'הוי' in it.get('collectionName','') or 'הירש' in it.get('artistName',''):
+                          rss_url = it.get('feedUrl')
+                          if rss_url:
+                              print(f"Found via Apple: {it.get('collectionName')}")
+                              break
+              except Exception as e:
+                  print(f"Apple search: {e}")
+
+          if not rss_url:
+              print("FAIL: Could not find RSS feed")
+              exit(1)
+
+          print(f"RSS: {rss_url}")
+
+          # Parse RSS and download mp3s
+          feed = feedparser.parse(rss_url)
+          print(f"Episodes: {len(feed.entries)}")
+
+          for i, e in enumerate(feed.entries[:30]):
+              title = e.get('title', f'ep{i}')
+              # Sanitize filename
+              safe_title = re.sub(r'[<>:"/\\|?*]', '_', title)[:120]
+              # Find audio URL
+              audio_url = None
+              for enc in e.get('enclosures', []):
+                  if enc.get('type','').startswith('audio'):
+                      audio_url = enc.get('href')
+                      break
+              if not audio_url:
+                  continue
+
+              fname = f"audio/{safe_title}.mp3"
+              if os.path.exists(fname): continue
+
+              print(f"[{i+1}] {safe_title[:60]}...")
+              try:
+                  r = requests.get(audio_url, headers=ua, timeout=300, stream=True)
+                  if r.status_code == 200:
+                      with open(fname, 'wb') as f:
+                          for chunk in r.iter_content(8192):
+                              f.write(chunk)
+                      print(f"  OK {os.path.getsize(fname)/(1024*1024):.1f}MB")
+                  else:
+                      print(f"  HTTP {r.status_code}")
+              except Exception as e:
+                  print(f"  ERR {e}")
+
+          PYEOF
+          echo "Files:"
+          ls -lh audio/ 2>/dev/null | head -10
+
+      - name: Upload to Drive
+        env:
+          FOLDER: ${{ github.event.inputs.drive_folder || 'הויכוח - תוכן אחד' }}
+        run: |
+          python3 << 'PYEOF'
+          import os, requests, glob
+          tok = requests.post("https://oauth2.googleapis.com/token", data={
+              "client_id": os.environ["CLIENT_ID"], "client_secret": os.environ["CLIENT_SECRET"],
+              "refresh_token": os.environ["REFRESH_TOKEN"], "grant_type": "refresh_token"
+          }).json()["access_token"]
+          folder = os.environ["FOLDER"]
+          q = f"name='{folder}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
+          r = requests.get("https://www.googleapis.com/drive/v3/files",
+              params={"q": q, "fields": "files(id)"}, headers={"Authorization": f"Bearer {tok}"}).json()
+          if r.get("files"): parent = r["files"][0]["id"]
+          else:
+              parent = requests.post("https://www.googleapis.com/drive/v3/files",
+                  headers={"Authorization": f"Bearer {tok}", "Content-Type": "application/json"},
+                  json={"name": folder, "mimeType": "application/vnd.google-apps.folder"}).json()["id"]
+          # Existing names
+          existing = set()
+          q2 = f"'{parent}' in parents and trashed=false"
+          r2 = requests.get("https://www.googleapis.com/drive/v3/files",
+              params={"q": q2, "fields": "files(name)", "pageSize": 1000},
+              headers={"Authorization": f"Bearer {tok}"}).json()
+          for f in r2.get("files", []): existing.add(f["name"])
+
+          total = 0
+          for fpath in glob.glob("audio/*.mp3"):
+              fname = os.path.basename(fpath)
+              if fname in existing: continue
+              up = requests.post("https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable",
+                  headers={"Authorization": f"Bearer {tok}", "Content-Type": "application/json"},
+                  json={"name": fname, "parents": [parent]})
+              loc = up.headers.get("Location")
+              if not loc: continue
+              with open(fpath, "rb") as f:
+                  r = requests.put(loc, data=f.read())
+              if r.status_code in (200, 201):
+                  total += 1
+                  print(f"  + {fname}")
+          print(f"TOTAL UPLOADED: {total}")
+          PYEOF

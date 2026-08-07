@@ -1,0 +1,93 @@
+name: Download Snake Images to Drive
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  images:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download snake images
+        run: |
+          mkdir -p snakes_img
+          declare -A URLS=(
+            [tzefa]="https://upload.wikimedia.org/wikipedia/commons/b/b3/Vipera_palaestina.jpg"
+            [shfifon]="https://upload.wikimedia.org/wikipedia/commons/8/86/Cerastes_cerastes_horned_viper.jpg"
+            [shrr]="https://upload.wikimedia.org/wikipedia/commons/0/04/Echis_coloratus.JPG"
+            [pesefas]="https://upload.wikimedia.org/wikipedia/commons/c/c4/Dolichophis_jugularis.jpg"
+            [naxash_mayim]="https://upload.wikimedia.org/wikipedia/commons/8/82/Natrix_tessellata_-_water_snake.jpg"
+            [zeman]="https://upload.wikimedia.org/wikipedia/commons/4/4d/Kalaentzis_H._nummifer_Rhodes.JPG"
+            [ein_xatul]="https://upload.wikimedia.org/wikipedia/commons/1/17/Mediterranean_Cat_Snake.jpg"
+            [tlum]="https://upload.wikimedia.org/wikipedia/commons/d/d9/Echis_carinatus.jpg"
+            [thunder]="https://upload.wikimedia.org/wikipedia/commons/f/f6/Eryx_jaculus.jpg"
+            [pchunon]="https://upload.wikimedia.org/wikipedia/commons/4/4f/Coronella_austriaca.jpg"
+            [tziv]="https://upload.wikimedia.org/wikipedia/commons/2/27/Benny_Trapp_Malpolon_insignitus.jpg"
+            [chumi]="https://upload.wikimedia.org/wikipedia/commons/3/3c/Brahminy_blind_snake.jpg"
+          )
+          for name in "${!URLS[@]}"; do
+            url="${URLS[$name]}"
+            ext="${url##*.}"
+            ext=$(echo "$ext" | tr '[:upper:]' '[:lower:]')
+            curl -sL -o "snakes_img/${name}.${ext}" "$url" -A "Mozilla/5.0"
+            ls -lh "snakes_img/${name}."* 2>/dev/null || echo "FAIL: $name"
+          done
+          echo "=== Total ==="
+          ls -1 snakes_img/
+
+      - name: Upload to Drive
+        env:
+          CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+        run: |
+          pip install -q requests
+          python3 << 'PYEOF'
+          import requests, os, glob, mimetypes, json
+          token = requests.post("https://oauth2.googleapis.com/token", data={
+              "client_id": os.environ["CLIENT_ID"],
+              "client_secret": os.environ["CLIENT_SECRET"],
+              "refresh_token": os.environ["REFRESH_TOKEN"],
+              "grant_type": "refresh_token"
+          }).json()["access_token"]
+          H = {"Authorization": f"Bearer {token}"}
+          fname = "snake_lesson_real_images"
+          r = requests.get("https://www.googleapis.com/drive/v3/files",
+              params={"q": f"name='{fname}' and mimeType='application/vnd.google-apps.folder' and trashed=false",
+                      "fields": "files(id)"}, headers=H)
+          files = r.json().get("files", [])
+          parent_id = files[0]["id"] if files else requests.post(
+              "https://www.googleapis.com/drive/v3/files",
+              headers={**H, "Content-Type": "application/json"},
+              json={"name": fname, "mimeType": "application/vnd.google-apps.folder"}).json()["id"]
+          print(f"Folder: {parent_id}")
+
+          for fpath in sorted(glob.glob("snakes_img/*")):
+              name = os.path.basename(fpath)
+              with open(fpath, "rb") as f:
+                  body = f.read()
+              if len(body) < 1000: continue
+              mime = mimetypes.guess_type(name)[0] or "image/jpeg"
+              boundary = "---PYBOUND_8294_"
+              metadata = json.dumps({"name": name, "parents": [parent_id], "mimeType": mime}).encode()
+              payload = (
+                  ("--" + boundary + "\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n").encode()
+                  + metadata
+                  + ("\r\n--" + boundary + f"\r\nContent-Type: {mime}\r\n\r\n").encode()
+                  + body
+                  + ("\r\n--" + boundary + "--").encode()
+              )
+              r = requests.post(
+                  "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart",
+                  data=payload,
+                  headers={**H, "Content-Type": f"multipart/related; boundary={boundary}"}
+              )
+              if r.status_code in (200, 201):
+                  print(f"OK: {name} ({len(body)//1024} KB) -> {r.json()['id']}")
+              else:
+                  print(f"FAIL {name}: {r.status_code}")
+          PYEOF

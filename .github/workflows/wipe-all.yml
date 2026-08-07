@@ -1,0 +1,64 @@
+name: Wipe All - Delete history + workflow runs + force-push clean
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "WIPE" to confirm full wipe'
+        required: true
+        default: ''
+  repository_dispatch:
+    types: [wipe_all]
+  schedule:
+    # Daily at 3:00 AM UTC = 6:00 AM Israel time
+    - cron: '0 3 * * *'
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  wipe:
+    runs-on: ubuntu-latest
+    if: github.event.inputs.confirm == 'WIPE' || github.event_name == 'repository_dispatch' || github.event_name == 'schedule'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+          ref: master
+
+      - name: Delete data files (silent)
+        run: |
+          rm -f blocked_urls.txt vimeo_ids.json batch_topics.txt || true
+          rm -f local_download_log.txt sender_log.txt vimeo_action.log vimeo_action_v2.log || true
+          rm -f search_results.json || true
+          rm -f docs/search_results.json docs/google_web_results.bin || true
+
+      - name: Delete all workflow runs except this one
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          CURRENT_RUN=${{ github.run_id }}
+          gh api --paginate "/repos/${{ github.repository }}/actions/runs" \
+            -q '.workflow_runs[].id' | while read id; do
+              if [ "$id" != "$CURRENT_RUN" ]; then
+                gh api -X DELETE "/repos/${{ github.repository }}/actions/runs/$id" >/dev/null 2>&1 || true
+                echo "deleted $id"
+              fi
+            done
+
+      - name: Squash git history to single commit
+        run: |
+          git config user.email "6742853@gmail.com"
+          git config user.name "yossi6742853"
+          git checkout --orphan _clean
+          git add -A
+          git commit -m "Fresh history $(date +%Y-%m-%d)" || true
+          git branch -D master || true
+          git branch -m master
+
+      - name: Force push clean master
+        run: |
+          git push -f origin master

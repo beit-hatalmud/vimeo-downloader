@@ -1,0 +1,262 @@
+name: Israeli TV - הורדה לדרייב (ערוץ 12 13 11 כאן ומוסיקה)
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'כתובת הסרטון (ערוץ 12/13/11/כאן/וכו - כל אתר ישראלי)'
+        required: true
+      drive_folder:
+        description: 'תיקיית דרייב'
+        required: false
+        default: 'ישראל TV'
+      quality:
+        description: 'best/1080/720/480/360'
+        required: false
+        default: 'best'
+      format:
+        description: 'video or audio'
+        required: false
+        default: 'video'
+  repository_dispatch:
+    types: [download-il, il-download, israeli-tv]
+
+permissions:
+  contents: write
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      # WARP gives non-datacenter IP — helps bypass some geo-blocks
+      - name: Setup Cloudflare WARP
+        uses: fscarmen/warp-on-actions@v1.1
+        with:
+          stack: dual
+
+      - name: Install tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg streamlink
+          pip install -U "yt-dlp[default]" playwright curl_cffi requests
+          playwright install chromium
+          yt-dlp --version
+          streamlink --version || true
+
+      - name: Download from Israeli site
+        env:
+          URL: ${{ github.event.inputs.url || github.event.client_payload.url }}
+          QUALITY: ${{ github.event.inputs.quality || github.event.client_payload.quality || 'best' }}
+          FORMAT: ${{ github.event.inputs.format || github.event.client_payload.format || 'video' }}
+        run: |
+          mkdir -p videos
+          QUALITY="${QUALITY:-best}"
+          FORMAT="${FORMAT:-video}"
+          echo "=== IP after WARP ===" && curl -s ifconfig.me; echo
+
+          if [ "$QUALITY" = "best" ]; then FMT="bv*+ba/b"
+          else FMT="bv*[height<=${QUALITY}]+ba/b[height<=${QUALITY}]"; fi
+
+          if [ "$FORMAT" = "audio" ]; then
+            DL_BASE="--no-overwrites -x --audio-format mp3 -o videos/%(title)s.%(ext)s"
+          else
+            DL_BASE="--no-overwrites --merge-output-format mp4 -f $FMT -o videos/%(title)s.%(ext)s"
+          fi
+
+          # Method 1: yt-dlp direct + geo-bypass IL
+          echo "=== Method 1: yt-dlp + geo-bypass IL ==="
+          yt-dlp --geo-bypass-country IL $DL_BASE "$URL" 2>&1 || true
+          [ -n "$(ls -A videos/ 2>/dev/null)" ] && echo "SUCCESS M1" || true
+
+          # Method 2: yt-dlp + impersonate chrome (for Mako/Keshet)
+          if [ -z "$(ls -A videos/ 2>/dev/null)" ]; then
+            echo "=== Method 2: yt-dlp + impersonate chrome ==="
+            yt-dlp --impersonate chrome --geo-bypass-country IL $DL_BASE "$URL" 2>&1 || true
+          fi
+
+          # Method 3: yt-dlp + impersonate safari
+          if [ -z "$(ls -A videos/ 2>/dev/null)" ]; then
+            echo "=== Method 3: yt-dlp + impersonate safari ==="
+            yt-dlp --impersonate safari --geo-bypass-country IL $DL_BASE "$URL" 2>&1 || true
+          fi
+
+          # Method 4: streamlink (great for live streams and Israeli TV)
+          if [ -z "$(ls -A videos/ 2>/dev/null)" ]; then
+            echo "=== Method 4: streamlink ==="
+            if [ "$FORMAT" = "audio" ]; then
+              streamlink --output "videos/stream.mp3" "$URL" audio 2>&1 || true
+            else
+              SLQUALITY="best"
+              [ "$QUALITY" != "best" ] && SLQUALITY="${QUALITY}p,best"
+              streamlink --output "videos/stream.mp4" "$URL" "$SLQUALITY" 2>&1 || true
+            fi
+          fi
+
+          # Method 5: Playwright — intercept network requests, find HLS/MP4 stream
+          if [ -z "$(ls -A videos/ 2>/dev/null)" ]; then
+            echo "=== Method 5: Playwright network intercept ==="
+            python3 << 'PYEOF'
+          import os, subprocess, time
+          from playwright.sync_api import sync_playwright
+
+          url = os.environ["URL"]
+          quality = os.environ.get("QUALITY", "best")
+          fmt = os.environ.get("FORMAT", "video")
+          streams = []
+
+          def on_response(response):
+              rurl = response.url
+              ct = response.headers.get("content-type", "")
+              if any(x in rurl for x in [".m3u8", "manifest", "playlist.json", "chunklist"]):
+                  streams.append({"url": rurl, "type": "hls"})
+              elif any(x in rurl for x in [".mp4", ".webm"]) and "http" in rurl:
+                  streams.append({"url": rurl, "type": "direct"})
+              elif "video/" in ct or "application/x-mpegurl" in ct or "application/vnd.apple.mpegurl" in ct:
+                  streams.append({"url": rurl, "type": "hls" if "mpegurl" in ct else "direct"})
+
+          with sync_playwright() as p:
+              browser = p.chromium.launch(headless=True, args=[
+                  "--lang=he-IL",
+                  "--disable-blink-features=AutomationControlled"
+              ])
+              ctx = browser.new_context(
+                  locale="he-IL",
+                  timezone_id="Asia/Jerusalem",
+                  user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                  extra_http_headers={
+                      "Accept-Language": "he-IL,he;q=0.9,en-US;q=0.8",
+                  }
+              )
+              page = ctx.new_page()
+              page.on("response", on_response)
+              try:
+                  print(f"Loading: {url}")
+                  page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                  time.sleep(3)
+                  # Try clicking play button
+                  for sel in [
+                      "button[class*='play']", ".play-btn", "[data-testid='play']",
+                      ".vjs-big-play-button", ".jw-icon-display", "[aria-label='Play']",
+                      "button[title='נגן']", ".player-play-btn"
+                  ]:
+                      try:
+                          page.click(sel, timeout=1000)
+                          print(f"Clicked: {sel}")
+                          time.sleep(4)
+                          break
+                      except:
+                          pass
+                  time.sleep(6)
+              except Exception as e:
+                  print(f"Page error: {e}")
+              browser.close()
+
+          print(f"Found {len(streams)} streams")
+          for s in streams[:5]:
+              print(f"  {s['type']}: {s['url'][:120]}")
+
+          # Prefer HLS, then direct
+          hls = [s for s in streams if s["type"] == "hls"]
+          direct = [s for s in streams if s["type"] == "direct"]
+          best = None
+          if hls:
+              best = max(hls, key=lambda s: len(s["url"]))
+          elif direct:
+              best = direct[0]
+
+          if best:
+              print(f"\nDownloading best stream: {best['url'][:100]}")
+              if fmt == "audio":
+                  r = subprocess.run(["yt-dlp", "--no-overwrites", "-x", "--audio-format", "mp3",
+                      "-o", "videos/%(title)s.%(ext)s", best["url"]])
+              else:
+                  r = subprocess.run(["yt-dlp", "--no-overwrites", "--merge-output-format", "mp4",
+                      "-o", "videos/%(title)s.%(ext)s", best["url"]])
+              if r.returncode != 0:
+                  # ffmpeg fallback for HLS
+                  subprocess.run(["ffmpeg", "-i", best["url"], "-c", "copy", "videos/stream_from_playwright.mp4"])
+          else:
+              print("No streams found by Playwright")
+          PYEOF
+          fi
+
+          # Method 6: yt-dlp with referer + headers
+          if [ -z "$(ls -A videos/ 2>/dev/null)" ]; then
+            echo "=== Method 6: yt-dlp with referer + headers ==="
+            DOMAIN=$(echo "$URL" | python3 -c "import sys,urllib.parse; u=urllib.parse.urlparse(sys.stdin.read().strip()); print(u.scheme+'://'+u.netloc)")
+            yt-dlp \
+              --geo-bypass-country IL \
+              --add-header "Referer:$DOMAIN" \
+              --add-header "Accept-Language:he-IL,he;q=0.9" \
+              $DL_BASE "$URL" 2>&1 || true
+          fi
+
+          echo "=== Final files ==="
+          ls -lh videos/ 2>/dev/null || echo "No files downloaded — all methods failed"
+
+      - name: Upload to Google Drive
+        if: always()
+        env:
+          CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+          SOURCE_URL: ${{ github.event.inputs.url || github.event.client_payload.url }}
+          DRIVE_FOLDER: ${{ github.event.inputs.drive_folder || github.event.client_payload.drive_folder || 'ישראל TV' }}
+        run: |
+          python3 << 'PYEOF'
+          import requests, os, glob, json, mimetypes, time
+          token = requests.post('https://oauth2.googleapis.com/token', data={
+              'client_id': os.environ['CLIENT_ID'], 'client_secret': os.environ['CLIENT_SECRET'],
+              'refresh_token': os.environ['REFRESH_TOKEN'], 'grant_type': 'refresh_token'
+          }).json()['access_token']
+          headers = {'Authorization': f'Bearer {token}'}
+          folder_name = os.environ.get('DRIVE_FOLDER') or 'ישראל TV'
+          r = requests.get('https://www.googleapis.com/drive/v3/files',
+              params={'q': f"name='{folder_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false", 'fields': 'files(id)'},
+              headers=headers)
+          files = r.json().get('files', [])
+          fid = files[0]['id'] if files else requests.post('https://www.googleapis.com/drive/v3/files',
+              headers={**headers, 'Content-Type': 'application/json'},
+              json={'name': folder_name, 'mimeType': 'application/vnd.google-apps.folder'}).json()['id']
+          source_url = os.environ.get('SOURCE_URL', '')
+          uploaded = []
+          for fp in glob.glob('videos/*'):
+              sz = os.path.getsize(fp)
+              if sz < 1000: continue
+              fn = os.path.basename(fp)
+              print(f'Uploading: {fn} ({sz/1024/1024:.1f} MB)')
+              mime = mimetypes.guess_type(fn)[0] or 'video/mp4'
+              r = requests.post('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,name',
+                  headers={**headers, 'Content-Type': 'application/json'}, json={'name': fn, 'parents': [fid]})
+              if r.status_code != 200: print(f'Init failed: {r.status_code}'); continue
+              with open(fp, 'rb') as f:
+                  r2 = requests.put(r.headers['Location'], data=f, headers={'Content-Type': mime})
+              if r2.status_code != 200: print(f'FAILED: {r2.status_code}'); continue
+              file_id = r2.json().get('id')
+              print(f'SUCCESS: https://drive.google.com/file/d/{file_id}/view')
+              uploaded.append({'id': file_id, 'name': fn, 'size': sz, 'url': source_url, 'time': int(time.time()*1000)})
+          os.makedirs('docs', exist_ok=True)
+          path = 'docs/last_downloads.json'
+          history = []
+          if os.path.exists(path):
+              try:
+                  with open(path, encoding='utf-8') as f: history = json.load(f)
+              except: pass
+          with open(path, 'w', encoding='utf-8') as f:
+              json.dump((uploaded + (history if isinstance(history, list) else []))[:50], f, ensure_ascii=False, indent=1)
+          print(f'Recorded {len(uploaded)} downloads')
+          PYEOF
+
+      - name: Commit record
+        if: always()
+        run: |
+          set +e
+          git config user.name "VideoGrab Bot"
+          git config user.email "bot@videograb.local"
+          git add docs/last_downloads.json
+          if ! git diff --staged --quiet; then
+            git commit -m "Record IL-TV download $(date +%H%M%S)"
+            for i in 1 2 3; do git pull --rebase origin master && git push && break; sleep 2; done
+          fi

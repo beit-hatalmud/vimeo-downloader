@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>שידור חי</title>
+  <link rel="dns-prefetch" href="https://script.google.com">
+  <link rel="preconnect" href="https://script.google.com" crossorigin>
+  <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.13/dist/hls.min.js"></script>
+  <style>
+    body { font-family: -apple-system, system-ui, Arial, sans-serif; background: #000; color: #eee; margin: 0; padding: 0; }
+    header { padding: 12px; background: #222; text-align: center; font-size: 16px; font-weight: bold; }
+    .row { display: flex; gap: 6px; padding: 8px; background: #1a1a1a; overflow-x: auto; flex-wrap: wrap; }
+    .row.qual { background: #2a2a2a; }
+    .channel, .qual-btn { padding: 10px 14px; background: #333; border-radius: 6px; cursor: pointer; white-space: nowrap; font-size: 14px; user-select: none; }
+    .channel.active, .qual-btn.active { background: #c33; }
+    .channel:hover, .qual-btn:hover { background: #444; }
+    video { width: 100%; height: 65vh; background: #000; }
+    .status { padding: 6px; color: #aaa; text-align: center; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <header>📺 שידור חי</header>
+  <div class="row" id="channels"></div>
+  <div class="row qual" id="quality">
+    <span style="padding:10px 6px;color:#888;font-size:13px">איכות:</span>
+    <span class="qual-btn active" data-q="auto">אוטו</span>
+    <span class="qual-btn" data-q="lowest">נמוכה (מהיר)</span>
+    <span class="qual-btn" data-q="medium">בינונית</span>
+    <span class="qual-btn" data-q="highest">גבוהה</span>
+  </div>
+  <video id="v" controls autoplay playsinline muted></video>
+  <div class="status" id="status">בוחר ערוץ...</div>
+
+<script>
+// 4 parallel Apps Script deployments
+const PROXIES = [
+  'https://script.google.com/macros/s/AKfycbzhRqTLE4fjjDqrH1we-JlGZ15R-ws8b_gfWF1xF1ewailaiyiS_YXqUhRtb3cQghVt/exec',
+  'https://script.google.com/macros/s/AKfycbwVvlnPU1ii3G5le6YVQ6jQvU_AZQ-3mLvuo7h6n0YaJmkd7m1zZ1Zv5NVsJqXFEA3c/exec',
+  'https://script.google.com/macros/s/AKfycby9p9Q9tSTU_WRu072DMaNNskiPgApkJj3kQ4Kpx7X5bAz3Lly7mhEKhq6EIoyxt2US/exec',
+  'https://script.google.com/macros/s/AKfycbxkJ9an6lgbS72Pco2w9rVbEjPux24aBLmOwUYNIwpavB5hYq9iWtFWFv586rX3IMbp/exec',
+];
+// Track per-proxy load balancing - prefer less-loaded proxy
+const proxyLoad = [0, 0, 0, 0];
+function PROXY() {
+  // Pick proxy with least load (true load balancer)
+  let best = 0;
+  for (let i = 1; i < proxyLoad.length; i++) if (proxyLoad[i] < proxyLoad[best]) best = i;
+  proxyLoad[best]++;
+  return PROXIES[best];
+}
+function releaseProxy(url) {
+  for (let i = 0; i < PROXIES.length; i++) {
+    if (url && url.indexOf(PROXIES[i]) === 0) {
+      proxyLoad[i] = Math.max(0, proxyLoad[i] - 1);
+      return;
+    }
+  }
+}
+
+const CHANNELS = [
+  // TV (extracted from split-tv.org)
+  { id: 'kan11', name: 'כאן 11', url: 'https://kancdn.medonecdn.net/livehls/oil/kancdn-live/live/kan11/live.livx/playlist.m3u8' },
+  { id: 'reshet13', name: 'רשת 13', url: 'https://d2xg1g9o5vns8m.cloudfront.net/out/v1/0855d703f7d5436fae6a9c7ce8ca5075/index.m3u8' },
+  { id: 'channel14', name: 'ערוץ 14', url: 'https://r.il.cdn-redge.media/livehls/oil/ch14/live/ch14/live.livx/playlist.m3u8' },
+  { id: 'channel24', name: 'ערוץ 24', url: 'https://live.wcdn.co.il/ulpan/prog_index.m3u8' },
+  { id: 'i24', name: 'i24 עברית', url: 'https://fastly.live.brightcove.com/6386790215112/eu-central-1/5377161796001/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJob3N0IjoiZXJmajYzLmVncmVzcy53YzQ3bTEiLCJhY2NvdW50X2lkIjoiNTM3NzE2MTc5NjAwMSIsImVobiI6ImZhc3RseS5saXZlLmJyaWdodGNvdmUuY29tIiwiaXNzIjoiYmxpdmUtcGxheWJhY2stc291cmNlLWFwaSIsInN1YiI6InBhdGhtYXB0b2tlbiIsImF1ZCI6WyI1Mzc3MTYxNzk2MDAxIl0sImp0aSI6IjYzODY3OTAyMTUxMTIifQ.8ZawImK7DfcrrXeAT2OVZ62qQJrJiBaoc7Y1DNNq1bg/playlist-hls.m3u8' },
+  { id: 'makan33', name: 'מכאן 33', url: 'https://kancdn.medonecdn.net/livehls/oil/kancdn-live/live/makan/live.livx/playlist.m3u8' },
+  { id: 'kneset', name: 'כנסת', url: 'https://kneset.gostreaming.tv/p2-kneset/_definst_/myStream/chunklist.m3u8' },
+  { id: 'ynet', name: 'ynet', url: 'https://ynet-live-01.ynet-pic1.yit.co.il/ynet/live.m3u8' },
+  { id: 'channel10', name: 'הכלכלה 10', url: 'https://r.il.cdn-redge.media/livehls/oil/calcala-live/live/channel10/live.livx/playlist.m3u8' },
+  { id: 'kabbalah', name: 'קבלה לעם', url: 'https://edge2.il.kab.tv/live/tv66-heb-high/playlist.m3u8' },
+  { id: 'hidabroot', name: 'הידברות', url: 'https://cdn.cybercdn.live/HidabrootIL/Live97/playlist.m3u8' },
+  // Radio (only Galgalatz confirmed working)
+  { id: 'glglz', name: '📻 גלגלצ', url: 'https://glzwizzlv.bynetcdn.com/glglz_mp3', audio: true, direct: true },
+];
+
+const video = document.getElementById('v');
+const statusEl = document.getElementById('status');
+const channelsEl = document.getElementById('channels');
+let hls = null;
+let currentQuality = 'lowest';  // Start low for less stuttering
+let currentCh = null;
+
+function proxyUrl(targetUrl) {
+  return PROXY() + '?action=hlsProxy&url=' + encodeURIComponent(targetUrl);
+}
+
+// Parallel chunk pre-fetch cache
+const chunkCache = new Map();
+const inflightFetches = new Map();
+
+async function fetchAndDecode(url) {
+  // Strip retry suffix if present
+  const cleanUrl = url.replace(/#retry$/, '');
+  if (chunkCache.has(cleanUrl)) return chunkCache.get(cleanUrl);
+  if (inflightFetches.has(cleanUrl)) return inflightFetches.get(cleanUrl);
+  const promise = (async () => {
+    const r = await fetch(cleanUrl);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const text = await r.text();
+    if (text.charAt(0) === '{') {
+      try {
+        const j = JSON.parse(text);
+        if (j.data) {
+          const binStr = atob(j.data);
+          const bytes = new Uint8Array(binStr.length);
+          for (let i = 0; i < binStr.length; i++) bytes[i] = binStr.charCodeAt(i);
+          return bytes.buffer;
+        }
+      } catch (e) {}
+    }
+    return text;
+  })();
+  inflightFetches.set(cleanUrl, promise);
+  promise.then(r => {
+    chunkCache.set(cleanUrl, r);
+    inflightFetches.delete(cleanUrl);
+    if (chunkCache.size > 60) {
+      const keys = Array.from(chunkCache.keys());
+      for (let i = 0; i < 10; i++) chunkCache.delete(keys[i]);
+    }
+  }).catch(() => inflightFetches.delete(cleanUrl));
+  return promise;
+}
+
+let lastSegUrls = [];
+let prefetchActive = false;
+
+// SLIDING WINDOW PRE-FETCHER: always 6 chunks in flight; as one completes, start next.
+let activeFetches = 0;
+const MAX_PARALLEL = 8;  // hls.js + browser = up to 8 across different origins (4 proxies x 2)
+
+async function aggressivePrefetch() {
+  if (prefetchActive) return;
+  prefetchActive = true;
+  try {
+    while (lastSegUrls.length > 0) {
+      // Find next uncached chunks
+      const candidates = lastSegUrls.filter(u => !chunkCache.has(u) && !inflightFetches.has(u));
+      if (candidates.length === 0 || activeFetches >= MAX_PARALLEL) {
+        await new Promise(r => setTimeout(r, 50));  // Shorter delay than before
+        continue;
+      }
+      // Start next fetch immediately (don't await - fire and forget for sliding window)
+      const url = candidates[0];
+      activeFetches++;
+      fetchAndDecode(url)
+        .catch(() => {
+          // On failure - retry with a different proxy by adding cache-buster
+          fetchAndDecode(url + '#retry').catch(() => {});
+        })
+        .finally(() => { activeFetches--; });
+    }
+  } finally {
+    prefetchActive = false;
+  }
+}
+
+function predictNextSegments(currentUrl) {
+  // Trigger aggressive prefetcher
+  aggressivePrefetch();
+  // Also do specific predict-ahead for compatibility
+  const idx = lastSegUrls.indexOf(currentUrl);
+  if (idx === -1) return;
+  for (let i = idx + 1; i <= idx + 6 && i < lastSegUrls.length; i++) {
+    fetchAndDecode(lastSegUrls[i]).catch(() => {});
+  }
+}
+
+class ProxyLoader extends Hls.DefaultConfig.loader {
+  load(context, config, callbacks) {
+    const url = context.url;
+    const origOnSuccess = callbacks.onSuccess;
+    const origLoad = super.load.bind(this);
+    const isSegment = context.type === 'fragment';
+
+    // Try cache first for segments
+    if (isSegment && chunkCache.has(url)) {
+      const cached = chunkCache.get(url);
+      setTimeout(() => {
+        callbacks.onSuccess({ data: cached, url }, { loading: { start: 0, end: 0, first: 0 }, parsing: { start: 0, end: 0 }, buffering: { start: 0, end: 0, first: 0 }, loaded: cached.byteLength || 0, total: cached.byteLength || 0 }, context, null);
+        predictNextSegments(url);
+      }, 0);
+      return;
+    }
+
+    callbacks.onSuccess = function(response, stats, context, networkDetails) {
+      let isJson = false;
+      let text = '';
+      if (response.data instanceof ArrayBuffer) {
+        const peek = new Uint8Array(response.data, 0, Math.min(2, response.data.byteLength));
+        if (peek[0] === 0x7B) {
+          isJson = true;
+          text = new TextDecoder().decode(response.data);
+        }
+      } else if (typeof response.data === 'string') {
+        if (response.data.charAt(0) === '{') {
+          isJson = true;
+          text = response.data;
+        }
+      }
+      if (isJson && text.indexOf('"data"') !== -1) {
+        try {
+          const j = JSON.parse(text);
+          if (j.data) {
+            const binStr = atob(j.data);
+            const bytes = new Uint8Array(binStr.length);
+            for (let i = 0; i < binStr.length; i++) bytes[i] = binStr.charCodeAt(i);
+            response.data = bytes.buffer;
+            stats.loaded = bytes.byteLength;
+          }
+        } catch (e) {}
+      }
+      // For m3u8 manifest, extract segment URLs and pre-fetch next 3
+      if (typeof response.data === 'string' && response.data.indexOf('#EXTM3U') !== -1) {
+        lastSegUrls = response.data.split('\n').filter(l => l.startsWith('http') && l.indexOf('exec?') !== -1);
+        // Pre-fetch first 3 segments
+        for (let i = 0; i < Math.min(3, lastSegUrls.length); i++) {
+          fetchAndDecode(lastSegUrls[i]).catch(() => {});
+        }
+      } else if (isSegment) {
+        predictNextSegments(url);
+      }
+      return origOnSuccess(response, stats, context, networkDetails);
+    };
+    super.load(context, config, callbacks);
+  }
+}
+
+function applyQuality() {
+  if (!hls || !hls.levels || hls.levels.length === 0) return;
+  const levels = hls.levels;
+  const sorted = levels.map((l, i) => ({ index: i, b: l.bitrate })).sort((a, b) => a.b - b.b);
+  let pick;
+  if (currentQuality === 'auto') {
+    pick = sorted[0];  // even "auto" we force lowest with this proxy
+  } else if (currentQuality === 'lowest') pick = sorted[0];
+  else if (currentQuality === 'highest') pick = sorted[sorted.length - 1];
+  else pick = sorted[Math.floor(sorted.length / 2)];
+  hls.currentLevel = pick.index;
+  hls.loadLevel = pick.index;
+  hls.autoLevelCapping = pick.index;  // prevent auto-switching upward
+}
+
+function renderChannels() {
+  CHANNELS.forEach((ch, i) => {
+    const el = document.createElement('div');
+    el.className = 'channel' + (i === 0 ? ' active' : '');
+    el.textContent = ch.name;
+    el.dataset.id = ch.id;
+    el.addEventListener('click', () => playChannel(ch));
+    channelsEl.appendChild(el);
+  });
+  document.querySelectorAll('.qual-btn').forEach(el => {
+    el.addEventListener('click', () => {
+      document.querySelectorAll('.qual-btn').forEach(b => b.classList.remove('active'));
+      el.classList.add('active');
+      currentQuality = el.dataset.q;
+      applyQuality();
+    });
+  });
+}
+
+function playChannel(ch) {
+  currentCh = ch;
+  document.querySelectorAll('.channel').forEach(el => el.classList.toggle('active', el.dataset.id === ch.id));
+  statusEl.textContent = `טוען ${ch.name}...`;
+  if (hls) { hls.destroy(); hls = null; }
+
+  // External link (e.g., Kan 11 YouTube) - opens in new tab
+  if (ch.external) {
+    video.removeAttribute('src');
+    statusEl.innerHTML = `<a href="${ch.external}" target="_blank" style="color:#6cf;font-size:18px;text-decoration:none">▶ פתח את ${ch.name} בלשונית חדשה</a>`;
+    window.open(ch.external, '_blank');
+    return;
+  }
+
+  // Direct MP3/audio stream (Galgalatz) - no HLS needed
+  if (ch.direct && ch.audio) {
+    video.src = proxyUrl(ch.url);
+    video.play().catch(() => {});
+    statusEl.textContent = `${ch.name} - רדיו חי`;
+    return;
+  }
+
+  const url = proxyUrl(ch.url);
+  if (Hls.isSupported()) {
+    hls = new Hls({
+      loader: ProxyLoader,
+      enableWorker: false,
+      lowLatencyMode: false,
+      // Maximum aggressive buffer
+      maxBufferLength: 600,        // 10 min buffer ahead
+      maxMaxBufferLength: 1200,
+      maxBufferSize: 1000 * 1000 * 1000,  // 1 GB
+      backBufferLength: 30,
+      // Parallel chunk fetching
+      progressive: true,
+      // Faster startup
+      startFragPrefetch: true,
+      // Start with lowest, never auto-bump up
+      startLevel: 0,
+      capLevelToPlayerSize: false,
+      autoStartLoad: true,
+      // Live config
+      liveSyncDuration: 60,         // 60s delay = more buffer breathing
+      liveMaxLatencyDuration: 120,
+      // ABR off (prevent quality changes that re-buffer)
+      abrEwmaDefaultEstimate: 100000,  // Force low estimate
+      abrBandWidthFactor: 0.5,
+      abrBandWidthUpFactor: 0.3,
+      // Aggressive retries
+      manifestLoadingMaxRetry: 6,
+      levelLoadingMaxRetry: 6,
+      fragLoadingMaxRetry: 15,
+      manifestLoadingRetryDelay: 300,
+      levelLoadingRetryDelay: 300,
+      fragLoadingRetryDelay: 300,
+      // Stall recovery
+      maxStarvationDelay: 16,
+      maxLoadingDelay: 16,
+      nudgeMaxRetry: 10,
+      // Faster manifest reload for live
+      liveDurationInfinity: true,
+    });
+    hls.loadSource(url);
+    hls.attachMedia(video);
+
+    // Wait for buffer to fill before starting playback (prevents stutter)
+    let started = false;
+    const tryStart = () => {
+      if (started) return;
+      const buffered = video.buffered.length ? (video.buffered.end(0) - video.currentTime) : 0;
+      if (buffered >= 5) {
+        started = true;
+        video.play().catch(() => statusEl.textContent = `${ch.name} - לחץ Play`);
+        statusEl.textContent = `${ch.name} - שידור חי`;
+      } else {
+        statusEl.textContent = `${ch.name} - טוען... ${Math.round(buffered)}s/5s`;
+      }
+    };
+
+    hls.on(Hls.Events.MANIFEST_PARSED, () => {
+      applyQuality();
+      statusEl.textContent = `${ch.name} - טוען...`;
+      // Check buffer every second
+      const bufCheck = setInterval(() => {
+        if (currentCh !== ch) { clearInterval(bufCheck); return; }
+        tryStart();
+        if (started) clearInterval(bufCheck);
+      }, 1000);
+    });
+
+    // NEVER pause on stall - just keep playing
+    video.addEventListener('waiting', () => {
+      const buffered = video.buffered.length ? (video.buffered.end(0) - video.currentTime) : 0;
+      statusEl.textContent = `${ch.name} - מאגר ${Math.round(buffered)}s`;
+    });
+    // Auto-resume if paused
+    video.addEventListener('pause', () => {
+      if (currentCh !== ch || !started) return;
+      setTimeout(() => {
+        if (currentCh === ch && video.paused) video.play().catch(() => {});
+      }, 500);
+    });
+    // Adaptive playback rate - sync playback with download rate
+    const rateMonitor = setInterval(() => {
+      if (currentCh !== ch) { clearInterval(rateMonitor); return; }
+      if (!started || video.paused) return;
+      const b = video.buffered.length ? (video.buffered.end(0) - video.currentTime) : 0;
+      let rate;
+      if (b < 3) rate = 0.5;        // Very low buffer - slow down hard
+      else if (b < 8) rate = 0.75;  // Low buffer - slow down
+      else if (b < 15) rate = 1.0;  // Normal
+      else if (b < 30) rate = 1.1;  // Plenty - catch up slightly
+      else rate = 1.25;             // Lots of buffer - catch up faster
+      if (Math.abs(video.playbackRate - rate) > 0.05) {
+        video.playbackRate = rate;
+      }
+      statusEl.textContent = `${ch.name} - מאגר ${Math.round(b)}s | מהירות ${rate.toFixed(2)}x`;
+    }, 1500);
+    hls.on(Hls.Events.LEVEL_SWITCHED, (e, data) => {
+      const lvl = hls.levels[data.level];
+      if (lvl) statusEl.textContent = `${ch.name} - ${lvl.height}p (${Math.round(lvl.bitrate/1000)}kbps)`;
+    });
+    hls.on(Hls.Events.ERROR, (event, data) => {
+      if (data.fatal) {
+        statusEl.textContent = `שגיאה: ${data.details} - מנסה שוב...`;
+        setTimeout(() => playChannel(ch), 3000);
+      }
+    });
+  }
+}
+
+renderChannels();
+playChannel(CHANNELS[0]);
+</script>
+</body>
+</html>

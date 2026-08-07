@@ -1,0 +1,32 @@
+name: NLI Search Creator
+on:
+  workflow_dispatch:
+    inputs:
+      creator:
+        description: 'Creator/contributor name to search (Hebrew)'
+        required: true
+        default: 'בלוי משה'
+
+permissions:
+  contents: write
+
+jobs:
+  search:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      flaresolverr:
+        image: ghcr.io/flaresolverr/flaresolverr:latest
+        ports:
+          - 8191:8191
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install requests playwright && playwright install chromium
+      - name: Wait FlareSolverr
+        run: for i in $(seq 1 30); do curl -fs http://localhost:8191/ >/dev/null 2>&1 && break; sleep 2; done
+      - name: Search via Playwright
+        run: python3 nli_search_playwright.py "${{ github.event.inputs.creator }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: creator-urls
+          path: creator_urls.json

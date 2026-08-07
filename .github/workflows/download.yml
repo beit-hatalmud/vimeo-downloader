@@ -1,0 +1,38 @@
+name: Download Video
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'Video URL to download'
+        required: true
+      quality:
+        description: 'Quality (360/480/720)'
+        required: true
+        default: '480'
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Install yt-dlp
+        run: pip install -U yt-dlp
+
+      - name: Download video
+        run: |
+          mkdir -p videos
+          yt-dlp \
+            --no-overwrites \
+            -o "videos/%(title)s [%(id)s].%(ext)s" \
+            "${{ github.event.inputs.url }}" 2>&1 || true
+          echo "=== Files ==="
+          ls -lh videos/
+
+      - name: Upload to artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: video
+          path: videos/
+          retention-days: 7
+          if-no-files-found: warn

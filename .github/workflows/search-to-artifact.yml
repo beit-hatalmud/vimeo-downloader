@@ -1,0 +1,56 @@
+name: Search to Artifact (local pull)
+on:
+  workflow_dispatch:
+    inputs:
+      query:
+        description: 'Search query'
+        required: true
+      limit:
+        description: 'How many videos'
+        required: false
+        default: '5'
+      source:
+        description: 'youtube/google'
+        required: false
+        default: 'youtube'
+      min_duration:
+        description: 'Min duration (seconds)'
+        required: false
+        default: '60'
+
+permissions:
+  contents: read
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Install
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y ffmpeg
+          pip install -U yt-dlp curl_cffi
+
+      - name: Download
+        env:
+          QUERY: ${{ github.event.inputs.query }}
+          N: ${{ github.event.inputs.limit }}
+          SRC: ${{ github.event.inputs.source }}
+          MIN_DUR: ${{ github.event.inputs.min_duration }}
+        run: |
+          mkdir -p videos
+          PREFIX="ytsearch"
+          if [ "$SRC" = "google" ]; then PREFIX="gvsearch"; fi
+          echo "Source: $PREFIX, Query: $QUERY, N: $N"
+          timeout 900 yt-dlp "${PREFIX}${N}:${QUERY}"             --no-overwrites --merge-output-format mp4             --match-filter "duration>=${MIN_DUR}"             --max-filesize 200M             --hls-prefer-native --retries 2 --fragment-retries 3             --extractor-args "generic:impersonate=chrome"             -o "videos/%(title)s.%(ext)s" || true
+          # remove junk
+          find videos/ -type f \( -size -1M -o -name "*.part" -o -name "*.ytdl" \) -delete 2>/dev/null
+          ls -lh videos/ | head -20
+          echo "COUNT: $(ls videos/ 2>/dev/null | wc -l)"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: videos
+          path: videos/
+          retention-days: 7

@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>שידור חי - אודיו בלבד (מהיר)</title>
+  <style>
+    body { font-family: -apple-system, system-ui, Arial, sans-serif; background: #111; color: #eee; margin: 0; padding: 0; }
+    header { padding: 20px; background: #222; text-align: center; font-size: 22px; font-weight: bold; }
+    .channels { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; padding: 16px; max-width: 900px; margin: 0 auto; }
+    .channel { padding: 18px 12px; background: #333; border-radius: 10px; cursor: pointer; text-align: center; font-size: 16px; font-weight: 500; }
+    .channel.active { background: #c33; }
+    .channel:hover { background: #444; }
+    .player-wrap { padding: 16px; text-align: center; max-width: 600px; margin: 0 auto; }
+    audio { width: 100%; }
+    .status { padding: 12px; color: #aaa; font-size: 14px; }
+    .info { padding: 14px; color: #888; font-size: 12px; max-width: 600px; margin: 0 auto; line-height: 1.5; text-align: center; }
+  </style>
+</head>
+<body>
+  <header>🎧 שידור חי - אודיו בלבד</header>
+  <div class="channels" id="channels"></div>
+  <div class="player-wrap">
+    <audio id="aud" controls autoplay></audio>
+    <div class="status" id="status">בחר ערוץ</div>
+  </div>
+  <div class="info">
+    אודיו בלבד פי 30 מהיר מהוידאו. דילי 20-40 שניות. הקטעים נטענים מ-GitHub (לא דרך הפרוקסי).
+  </div>
+
+<script>
+const BASE = 'https://yossi6742853.github.io/vimeo-downloader/live-audio/';
+const CHANNELS = [
+  { id: '1', name: 'כאן 11' },
+  { id: '2', name: 'רשת 13' },
+  { id: '3', name: 'ערוץ 14' },
+  { id: '4', name: 'הידברות' },
+  { id: '5', name: 'ערוץ 24' },
+  { id: '6', name: 'מכאן 33' },
+  { id: '7', name: 'כנסת' },
+  { id: '8', name: 'i24 עברית' },
+];
+const audio = document.getElementById('aud');
+const statusEl = document.getElementById('status');
+const channelsEl = document.getElementById('channels');
+let currentCh = null;
+let queue = [];
+let playedSet = new Set();
+let pollTimer = null;
+
+function renderChannels() {
+  CHANNELS.forEach(ch => {
+    const el = document.createElement('div');
+    el.className = 'channel';
+    el.textContent = ch.name;
+    el.dataset.id = ch.id;
+    el.addEventListener('click', () => selectChannel(ch));
+    channelsEl.appendChild(el);
+  });
+}
+
+async function fetchManifest(chId) {
+  // GitHub API to list files in directory
+  try {
+    const r = await fetch(`https://api.github.com/repos/yossi6742853/vimeo-downloader/contents/docs/live-audio/${chId}`);
+    if (!r.ok) return [];
+    const items = await r.json();
+    return items.filter(i => i.name.endsWith('.mp3')).map(i => ({
+      name: i.name,
+      url: i.download_url || `${BASE}${chId}/${i.name}`,
+      ts: parseInt(i.name.replace('.mp3',''))
+    })).sort((a,b) => a.ts - b.ts);
+  } catch(e) {
+    console.error('manifest err', e);
+    return [];
+  }
+}
+
+async function refreshQueue() {
+  if (!currentCh) return;
+  const items = await fetchManifest(currentCh.id);
+  let added = 0;
+  for (const it of items) {
+    if (!playedSet.has(it.name) && !queue.find(q => q.name === it.name)) {
+      queue.push(it);
+      added++;
+    }
+  }
+  if (added > 0) statusEl.textContent = `${currentCh.name} - ${queue.length} קטעים בתור`;
+  if (!audio.src && queue.length > 0) playNext();
+}
+
+function playNext() {
+  if (queue.length === 0) {
+    statusEl.textContent = `${currentCh.name} - מחכה לקטעים חדשים...`;
+    return;
+  }
+  const next = queue.shift();
+  playedSet.add(next.name);
+  audio.src = next.url;
+  audio.play().catch(()=>{});
+  statusEl.textContent = `${currentCh.name} - מנגן ${next.name} | ${queue.length} בתור`;
+}
+
+audio.addEventListener('ended', playNext);
+audio.addEventListener('error', () => setTimeout(playNext, 500));
+
+function selectChannel(ch) {
+  document.querySelectorAll('.channel').forEach(el => el.classList.toggle('active', el.dataset.id === ch.id));
+  currentCh = ch;
+  queue = [];
+  playedSet = new Set();
+  audio.src = '';
+  statusEl.textContent = `טוען ${ch.name}...`;
+  refreshQueue();
+  if (pollTimer) clearInterval(pollTimer);
+  pollTimer = setInterval(refreshQueue, 8000);
+}
+
+renderChannels();
+</script>
+</body>
+</html>

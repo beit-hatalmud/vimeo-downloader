@@ -1,0 +1,163 @@
+name: Chaim Katz Batch
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'YouTube URL to download (Chaim Katz ODT batch)'
+        required: true
+      folder_id:
+        description: 'Drive folder ID (subfolder under root)'
+        required: false
+        default: '1cdERyLTG45wusou5fld2OV7ux4vMEqZR'
+
+permissions:
+  contents: read
+
+env:
+  CK_ROOT_FOLDER_ID: '1cdERyLTG45wusou5fld2OV7ux4vMEqZR'
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Cloudflare WARP
+        uses: fscarmen/warp-on-actions@v1.1
+        with:
+          stack: dual
+
+      - name: Install tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
+          pip install -U yt-dlp requests
+
+      - name: Download video at 480p
+        env:
+          URL: ${{ github.event.inputs.url }}
+        run: |
+          set +e
+          mkdir -p videos
+          echo "Downloading: $URL (480p with audio)"
+          echo "IP after WARP:"; curl -s ifconfig.me; echo
+
+          # Strict 480p with audio (force, no upscale fallback)
+          FMT='bv*[height<=480]+ba/b[height<=480]'
+
+          echo "--- attempt: default clients ---"
+          yt-dlp --no-overwrites --merge-output-format mp4 -f "$FMT" \
+            -o "videos/%(title)s.%(ext)s" "$URL" 2>&1
+          if [ -n "$(ls -A videos/ 2>/dev/null)" ]; then echo "OK default"; exit 0; fi
+
+          for CLIENT in tv ios android web_safari; do
+            echo "--- attempt: client=$CLIENT ---"
+            if [ "$CLIENT" = "android" ]; then
+              # Android: drop format filter to maximize chance, then re-encode if needed
+              yt-dlp --extractor-args "youtube:player_client=android" \
+                --no-overwrites \
+                -o "videos/%(title)s.%(ext)s" "$URL" 2>&1
+            else
+              yt-dlp --extractor-args "youtube:player_client=$CLIENT" \
+                --no-overwrites --merge-output-format mp4 -f "$FMT" \
+                -o "videos/%(title)s.%(ext)s" "$URL" 2>&1
+            fi
+            if [ -n "$(ls -A videos/ 2>/dev/null)" ]; then echo "OK $CLIENT"; exit 0; fi
+          done
+
+          echo "All clients failed"
+          ls -la videos/ || true
+          exit 1
+
+      - name: Show files
+        if: always()
+        run: ls -lh videos/ || echo "No files"
+
+      - name: Upload to Chaim Katz Drive folder
+        env:
+          CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+          TARGET_FOLDER_ID: ${{ github.event.inputs.folder_id }}
+          ROOT_FOLDER_ID: ${{ env.CK_ROOT_FOLDER_ID }}
+          SOURCE_URL: ${{ github.event.inputs.url }}
+        run: |
+          python3 << 'PYEOF'
+          import requests, json, os, glob, mimetypes, re
+
+          token = requests.post("https://oauth2.googleapis.com/token", data={
+              "client_id": os.environ["CLIENT_ID"],
+              "client_secret": os.environ["CLIENT_SECRET"],
+              "refresh_token": os.environ["REFRESH_TOKEN"],
+              "grant_type": "refresh_token"
+          }).json()["access_token"]
+          headers = {"Authorization": f"Bearer {token}"}
+
+          target = os.environ.get("TARGET_FOLDER_ID") or os.environ["ROOT_FOLDER_ID"]
+
+          # Decide subfolder by title, when caller passed root id (default)
+          def categorize(title):
+              t = title
+              # Podcasts / interviews
+              for w in ['הקשר', 'פודקאסט', 'פודקסט', 'ראיון', 'שיחה עם', 'מדברים על']:
+                  if w in t: return 'הקשר'
+              # Fathers and sons
+              for w in ['אבות ובנים', 'אבות עם בנים', 'אבא ובן', 'אבות בנים']:
+                  if w in t: return 'אבות ובנים בשטח'
+              # Group activities / ODT
+              for w in ['ODT', 'odt', 'גיבוש', 'סדנה', 'סדנת', 'פעילות',
+                        'team building', 'team-building', 'Team Building',
+                        'משחק', 'משחקים', 'אתגר', 'תרגיל', 'שובר קרח',
+                        'קבוצה', 'קבוצות', 'צוות', 'מורים', 'נוער',
+                        'בחורי ישיבה', 'ישיבת', 'מחנכים']:
+                  if w in t: return 'פעילויות וקבוצות'
+              return 'תוכן נוסף'
+
+          # Cache: list child folders of root once
+          subfolders = {}
+          q = f"'{os.environ['ROOT_FOLDER_ID']}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
+          r = requests.get("https://www.googleapis.com/drive/v3/files",
+              params={"q": q, "fields": "files(id,name)"}, headers=headers).json()
+          for f in r.get("files", []):
+              subfolders[f["name"]] = f["id"]
+
+          for fpath in glob.glob("videos/*"):
+              fname = os.path.basename(fpath)
+              size = os.path.getsize(fpath)
+              if size < 1000:
+                  print(f"Skipping tiny: {fname} ({size}B)")
+                  continue
+
+              # Title-based subfolder routing when target == root
+              dest = target
+              if target == os.environ["ROOT_FOLDER_ID"]:
+                  cat = categorize(fname)
+                  dest = subfolders.get(cat, target)
+                  print(f"Routing -> {cat} ({dest})")
+
+              # Skip if same name already exists in dest (idempotent)
+              esc = fname.replace("\\","\\\\").replace("'","\\'")
+              dq = f"name='{esc}' and '{dest}' in parents and trashed=false"
+              dup = requests.get("https://www.googleapis.com/drive/v3/files",
+                  params={"q": dq, "fields": "files(id,name)"}, headers=headers).json()
+              if dup.get("files"):
+                  print(f"DUPLICATE — already in folder: {fname}")
+                  continue
+
+              print(f"Uploading: {fname} ({size/1024/1024:.1f} MB) -> {dest}")
+              mime = mimetypes.guess_type(fname)[0] or "video/mp4"
+              r = requests.post(
+                  "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,name,size",
+                  headers={**headers, "Content-Type": "application/json"},
+                  json={"name": fname, "parents": [dest]})
+              if r.status_code != 200:
+                  print(f"Init failed: {r.status_code} {r.text[:200]}")
+                  continue
+              with open(fpath, "rb") as f:
+                  r2 = requests.put(r.headers["Location"], data=f, headers={"Content-Type": mime})
+              if r2.status_code == 200:
+                  print(f"OK id={r2.json().get('id')}")
+              else:
+                  print(f"Upload FAILED: {r2.status_code} {r2.text[:200]}")
+          PYEOF
